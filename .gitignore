@@ -1,0 +1,15 @@
+# arduino-cli のビルド成果物
+build/
+*.hex
+*.bin
+*.elf
+*.zip
+*.map
+
+# macOS
+.DS_Store
+
+# エディタ
+.vscode/
+.idea/
+*.swp
