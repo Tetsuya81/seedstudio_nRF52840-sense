@@ -21,6 +21,7 @@
 #include "PressDetector.h"
 #include "StatusLed.h"
 #include "RecorderApp.h"
+#include "BoardCheck.h"
 
 static VirtualButtonSource g_virtual;
 static GpioButtonSource    g_gpio(PIN_USER_BUTTON);   // Phase 6 用 (未配線)
@@ -44,6 +45,7 @@ static void printHelp() {
   Serial.println(F("  i    LED極性を反転 (点灯が逆に見えるとき)"));
   Serial.println(F("  x    LEDセルフテスト (R->G->B->White)"));
   Serial.println(F("  g    ボタン入力を virtual <-> gpio で切替"));
+  Serial.println(F("  m    基板の自己診断 (Sense版かどうかを判定)"));
   Serial.println(F("  h    このヘルプ"));
   Serial.println(F("------------------------------------------------"));
   Serial.println(F("  SLEEP --long--> IDLE --short--> RECORDING"));
@@ -88,6 +90,7 @@ static void handleCommand(char c, uint32_t now) {
       }
       g_detector.begin(g_button->isDown(), now);
       break;
+    case 'm': BoardCheck::run(Serial); break;
     case 'h': case '?': printHelp(); break;
     default: break;
   }
