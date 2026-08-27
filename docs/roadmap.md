@@ -79,10 +79,18 @@ SN が悪く機械的ノイズが多い。**ここで「実用になる音が録
 - TinyUSB マスストレージで「USBメモリ」として見せ、Macから直接コピー
   （v1 は USB-C を残すので、これが正式な取り出し手段になる）
 - ⚠️ **コア同梱の `ExternalFS` をそのまま使ってはいけない**。
-  `ExternalFileSystem.cpp:10,118,141` が 4MiB (P25Q32H) 決め打ちで、
-  実チップ 2MiB (P25Q16H, JEDEC 0x856015) の **2倍のブロック数**で
-  LittleFS を構成する。2MiB を超えた時点で壊れる。
-  `Adafruit_SPIFlash` を直に使い、block_count は実行時に `flash.size()` から導く
+  `ExternalFileSystem.cpp:141` の `flash.begin(&P25Q32H, 1)` は
+  実チップ P25Q16H (JEDEC `0x856015`) と一致せず **`false` を返す**が、
+  戻り値が確認されていない。フォールバック用の `possible_devices[]`
+  (`Adafruit_SPIFlashBase.cpp:91-101`) にも P25Q16H は無いため救済されない。
+  結果 `_flash_dev == NULL` / `size() == 0` のまま後段が動く＝**初期化直後から未定義**。
+  対策は `Adafruit_SPIFlash` を直に使い、**P25Q16H を含む許可リストを渡して
+  `begin()` の戻り値を必ず確認**すること。`flash.size()` は照合に成功した
+  記述子の値を返すだけなので、許可リスト無しでは未知チップに自動対応しない
+- ファイルシステムは **FAT12 + USB MSC**。2MiB は 512B/sector で 4096 sector しかなく、
+  クラスタ数が 4085 未満になるため標準準拠の選択肢は FAT12 のみ。
+  ただしコア同梱の `FatFormatter` は 6MB 以下を拒否する (`FatFormatter.cpp:55-57`) ので、
+  自前の最小フォーマッタか検証済みイメージが要る
 
 ## Phase 4 — 圧縮（v1の最大の関門）
 

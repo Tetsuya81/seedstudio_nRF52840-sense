@@ -48,6 +48,7 @@ static void printHelp() {
   Serial.println(F("  g    ボタン入力を virtual <-> gpio で切替"));
   Serial.println(F("  m    マイク実測 (0.5秒録って RMS/ピーク/dBFS を表示)"));
   Serial.println(F("  f    フラッシュ実測 (容量と録音可能時間)"));
+  Serial.println(F("  F    F-10再現 (P25Q32Hだけを渡した場合の begin())"));
   Serial.println(F("  h    このヘルプ"));
   Serial.println(F("------------------------------------------------"));
   Serial.println(F("  SLEEP --long--> IDLE --short--> RECORDING"));
@@ -94,6 +95,7 @@ static void handleCommand(char c, uint32_t now) {
       break;
     case 'm': MicCheck::run(Serial); break;
     case 'f': FlashCheck::run(Serial); break;
+    case 'F': FlashCheck::runP25Q32HOnly(Serial); break;
     case 'h': case '?': printHelp(); break;
     default: break;
   }
