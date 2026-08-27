@@ -22,6 +22,7 @@
 #include "StatusLed.h"
 #include "RecorderApp.h"
 #include "MicCheck.h"
+#include "FlashCheck.h"
 
 static VirtualButtonSource g_virtual;
 static GpioButtonSource    g_gpio(PIN_USER_BUTTON);   // Phase 6 用 (未配線)
@@ -46,6 +47,7 @@ static void printHelp() {
   Serial.println(F("  x    LEDセルフテスト (R->G->B->White)"));
   Serial.println(F("  g    ボタン入力を virtual <-> gpio で切替"));
   Serial.println(F("  m    マイク実測 (0.5秒録って RMS/ピーク/dBFS を表示)"));
+  Serial.println(F("  f    フラッシュ実測 (容量と録音可能時間)"));
   Serial.println(F("  h    このヘルプ"));
   Serial.println(F("------------------------------------------------"));
   Serial.println(F("  SLEEP --long--> IDLE --short--> RECORDING"));
@@ -91,6 +93,7 @@ static void handleCommand(char c, uint32_t now) {
       g_detector.begin(g_button->isDown(), now);
       break;
     case 'm': MicCheck::run(Serial); break;
+    case 'f': FlashCheck::run(Serial); break;
     case 'h': case '?': printHelp(); break;
     default: break;
   }
