@@ -55,55 +55,69 @@ inline void printDuration(Stream& out, const char* label, uint32_t bytes, uint32
 static Adafruit_FlashTransport_QSPI g_transport;
 static Adafruit_SPIFlash g_flash(&g_transport);
 
-inline void report(Stream& out, bool rc) {
-  out.print(F("  begin() rc   : "));
-  out.println(rc ? F("true") : F("FALSE"));
-  out.print(F("  jedec id     : 0x"));
+// 観測を4つに分離して記録する。
+//
+//   raw_read_ok    : トランスポートからの JEDEC 生読み出しが成功したか
+//   raw_jedec      : そのとき受信した4バイト（バスが生きている証拠）
+//   begin_ok       : Adafruit_SPIFlash::begin() の戻り値
+//   descriptor_id  : getJEDECID()。バスではなく**照合に成功した記述子**の値。
+//                    _flash_dev == NULL なら固定値 0xFFFFFF を返すだけ
+//                    (Adafruit_SPIFlashBase.cpp:287-293)
+//   size           : 同じく記述子の total_size。NULL なら 0 (:277-279)
+//
+// raw_jedec が正しく読めているのに begin_ok が false なら、
+// 「バス障害」ではなく「候補リストとの照合失敗」だと分離できる。
+//
+// トランスポートは1個だけ。begin() が内部で _trans->begin() を呼ぶので、
+// 照合に失敗した後でも同じトランスポートから生読み出しできる。
+inline void probe(Stream& out, const SPIFlash_Device_t* devs, size_t count,
+                  const char* label) {
+  out.print(F("---- flash probe : "));
+  out.println(label);
+
+  bool begin_ok = g_flash.begin(devs, count);
+
+  uint8_t raw[4] = {0, 0, 0, 0};
+  bool raw_ok = g_transport.readCommand(SFLASH_CMD_READ_JEDEC_ID, raw, 4);
+
+  out.print(F("  raw_read_ok   : "));
+  out.println(raw_ok ? F("true") : F("false"));
+  out.print(F("  raw_jedec     : "));
+  for (uint8_t i = 0; i < 4; i++) {
+    if (raw[i] < 16) out.print('0');
+    out.print(raw[i], HEX);
+    out.print(' ');
+  }
+  out.println();
+  out.print(F("  begin_ok      : "));
+  out.println(begin_ok ? F("true") : F("FALSE"));
+  out.print(F("  descriptor_id : 0x"));
   out.println(g_flash.getJEDECID(), HEX);
   uint32_t bytes = g_flash.size();
-  out.print(F("  size()       : "));
+  out.print(F("  size          : "));
   out.print(bytes);
   out.println(F(" bytes"));
-  if (!rc || bytes == 0) {
-    out.println(F("  -> _flash_dev == NULL (Adafruit_SPIFlashBase.cpp:277-279)"));
-    return;
+
+  if (begin_ok && bytes) {
+    out.println(F("  recording time at 16kHz mono (raw capacity, no filesystem):"));
+    printDuration(out, "pcm 16bit  ", bytes, kRatePcm16k);
+    printDuration(out, "adpcm 16kHz", bytes, kRateAdpcm16k);
+    printDuration(out, "adpcm  8kHz", bytes, kRateAdpcm8k);
+    printDuration(out, "opus 16kbps", bytes, kRateOpus16kbps);
+    out.println(F("  (filesystem overhead is NOT subtracted yet)"));
   }
-  out.print(F("  page size    : "));
-  out.print(g_flash.pageSize());
-  out.print(F("   pages: "));
-  out.println(g_flash.numPages());
-  out.println(F("  recording time at 16kHz mono (raw capacity, no filesystem):"));
-  printDuration(out, "pcm 16bit  ", bytes, kRatePcm16k);
-  printDuration(out, "adpcm 16kHz", bytes, kRateAdpcm16k);
-  printDuration(out, "adpcm  8kHz", bytes, kRateAdpcm8k);
-  printDuration(out, "opus 16kbps", bytes, kRateOpus16kbps);
-  out.println(F("  (filesystem overhead is NOT subtracted yet)"));
+  out.println(F("----------------------------------------------"));
 }
 
-// 'f' : 正しい候補リスト (P25Q16H + P25Q32H) を渡す
+// 'f' : 正しい候補リスト (P25Q16H + P25Q32H)
 inline void run(Stream& out) {
-  out.println(F("---- flash check : correct device list --------"));
-  bool rc = g_flash.begin(kCandidates, sizeof(kCandidates) / sizeof(kCandidates[0]));
-  report(out, rc);
-  out.println(F("----------------------------------------------"));
+  probe(out, kCandidates, sizeof(kCandidates) / sizeof(kCandidates[0]),
+        "correct device list");
 }
 
-// 'F' : ExternalFileSystem.cpp:141 と同じく P25Q32H(4MiB) だけを渡す。
-//
-// 起動直後にこれを最初に呼べば、end() の影響も
-// トランスポート2重生成の影響も無い条件で F-10 を再現できる。
-//
-// Adafruit_SPIFlashBase.cpp:110-163 の begin() は
-//   1. 渡された候補と JEDEC を照合
-//   2. 外れたら possible_devices[] と照合
-//   3. どちらも外れたら _flash_dev = NULL で false
-// で、possible_devices[] (:91-101) に P25Q16H は含まれていない。
+// 'F' : ExternalFileSystem.cpp:141 と同じく P25Q32H(4MiB) のみ
 inline void runP25Q32HOnly(Stream& out) {
-  out.println(F("---- flash check : P25Q32H only (F-10 repro) --"));
-  bool rc = g_flash.begin(&kCandidates[1], 1);
-  report(out, rc);
-  out.println(F("  -> ExternalFileSystem.cpp:141 はこの rc を見ていない"));
-  out.println(F("----------------------------------------------"));
+  probe(out, &kCandidates[1], 1, "P25Q32H only (F-10 repro)");
 }
 
 }  // namespace FlashCheck
