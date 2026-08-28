@@ -120,4 +120,85 @@ inline void runP25Q32HOnly(Stream& out) {
   probe(out, &kCandidates[1], 1, "P25Q32H only (F-10 repro)");
 }
 
+// 非破壊の内容スキャン。
+// 消去前に「そもそも中身があるか」を確認するためのもの。
+// NOR の消去状態は 0xFF なので、全バイト 0xFF のセクタを「空」と数える。
+inline void scanContents(Stream& out) {
+  out.println(F("---- flash content scan (read only) ----------"));
+
+  if (!g_flash.begin(kCandidates, sizeof(kCandidates) / sizeof(kCandidates[0]))) {
+    out.println(F("  begin() failed -> abort"));
+    out.println(F("----------------------------------------------"));
+    return;
+  }
+
+  const uint32_t total = g_flash.size();
+  const uint32_t kSector = 4096;
+  const uint32_t sectors = total / kSector;
+
+  static uint8_t buf[256];
+  uint32_t emptySectors = 0, usedSectors = 0;
+  uint32_t firstUsed[8];
+  uint8_t  firstUsedCount = 0;
+  uint32_t nonFFbytes = 0;
+
+  for (uint32_t s = 0; s < sectors; s++) {
+    bool empty = true;
+    for (uint32_t off = 0; off < kSector; off += sizeof(buf)) {
+      if (!g_flash.readBuffer(s * kSector + off, buf, sizeof(buf))) {
+        out.print(F("  readBuffer failed at 0x"));
+        out.println(s * kSector + off, HEX);
+        out.println(F("----------------------------------------------"));
+        return;
+      }
+      for (uint16_t i = 0; i < sizeof(buf); i++) {
+        if (buf[i] != 0xFF) { empty = false; nonFFbytes++; }
+      }
+    }
+    if (empty) {
+      emptySectors++;
+    } else {
+      usedSectors++;
+      if (firstUsedCount < 8) firstUsed[firstUsedCount++] = s;
+    }
+    if ((s % 64) == 0) { out.print('.'); out.flush(); }
+  }
+  out.println();
+
+  out.print(F("  sectors (4KiB) : "));
+  out.println(sectors);
+  out.print(F("  all-0xFF       : "));
+  out.println(emptySectors);
+  out.print(F("  non-0xFF       : "));
+  out.println(usedSectors);
+  out.print(F("  non-0xFF bytes : "));
+  out.println(nonFFbytes);
+
+  if (usedSectors == 0) {
+    out.println(F("  -> flash is fully erased. no data to back up."));
+  } else {
+    out.print(F("  first used sectors:"));
+    for (uint8_t i = 0; i < firstUsedCount; i++) {
+      out.print(F(" #"));
+      out.print(firstUsed[i]);
+    }
+    out.println();
+    // 先頭の非空セクタの冒頭64バイトを見せる
+    g_flash.readBuffer(firstUsed[0] * kSector, buf, 64);
+    out.print(F("  preview sector #"));
+    out.print(firstUsed[0]);
+    out.println(F(" first 64 bytes:"));
+    out.print(F("    "));
+    for (uint8_t i = 0; i < 64; i++) {
+      if (buf[i] < 16) out.print('0');
+      out.print(buf[i], HEX);
+      out.print(' ');
+      if ((i % 16) == 15) { out.println(); out.print(F("    ")); }
+    }
+    out.println();
+    out.println(F("  -> DATA PRESENT. back up before formatting."));
+  }
+  out.println(F("----------------------------------------------"));
+}
+
 }  // namespace FlashCheck
