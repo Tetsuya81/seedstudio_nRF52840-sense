@@ -3,6 +3,7 @@
 #include <Adafruit_TinyUSB.h>
 #include "FlashCheck.h"
 #include "FormatCheck.h"
+#include "SafetyPolicy.h"
 
 // USB マスストレージでフラッシュを Mac に見せる。
 //
@@ -23,12 +24,14 @@ namespace MscBridge {
 extern "C" int flashio_flush(void);
 
 static Adafruit_USBD_MSC g_msc;
-static bool     g_exposed      = true;    // ホストへ見せているか（起動時は見せる）
+static bool     g_exposed      = false;
+inline bool isExposed() { return g_exposed; }
 static uint32_t g_hostReads    = 0;
 static uint32_t g_writeAttempts = 0;      // ホストが書こうとした回数
 
 inline int32_t onRead(uint32_t lba, void *buffer, uint32_t bufsize) {
-  if (!g_exposed) return -1;
+  if (SafetyPolicy::kHardwareQuarantine || !g_exposed || !buffer ||
+      !SafetyPolicy::byteRange(lba, bufsize, FlashCheck::g_flash.size())) return -1;
   if (FlashCheck::g_flash.readBuffer(lba * 512, (uint8_t *)buffer, bufsize) != bufsize)
     return -1;
   g_hostReads++;
@@ -48,6 +51,7 @@ inline bool onReady(void) { return g_exposed; }
 
 // USB列挙前に呼ぶので何も出力しない。
 inline void beginQuiet(void) {
+  if (SafetyPolicy::kHardwareQuarantine) return;
   g_msc.setID("Seeed", "pebble_ring", "1.0");
   g_msc.setCapacity(FlashCheck::g_flash.size() / 512, 512);
   g_msc.setReadWriteCallback(onRead, onWrite, onFlush);
@@ -57,11 +61,16 @@ inline void beginQuiet(void) {
   // その後 setUnitReady(true) にしても自発的に再プローブしない（実測）。
   // ホストからは read-only なので、常時見せていても書き荒らされることはない。
   g_msc.setUnitReady(true);
+  g_exposed = true;
   g_msc.begin();
 }
 
 // ホストへ見せる。基板側のFSはアンマウントして書き出しを確定させる。
 inline void expose(Stream& out) {
+  if (SafetyPolicy::kHardwareQuarantine) {
+    out.println(F("HARDWARE HOLD: MSC expose/re-enumeration blocked."));
+    return;
+  }
   out.println(F("---- expose to host ---------------------------"));
   f_mount(NULL, "", 0);                     // 基板側をアンマウント
   int ok = flashio_flush();                 // 未書き出しを確定
@@ -85,6 +94,10 @@ inline void expose(Stream& out) {
 }
 
 inline void hide(Stream& out) {
+  if (SafetyPolicy::kHardwareQuarantine) {
+    out.println(F("HARDWARE HOLD: USB re-enumeration blocked."));
+    return;
+  }
   out.println(F("---- hide from host ---------------------------"));
   g_exposed = false;
   g_msc.setUnitReady(false);

@@ -4,7 +4,7 @@
 #include "src/fatfs/ff.h"
 
 extern "C" {
-void        flashio_attach(Adafruit_SPIFlash *fl);
+int         flashio_attach(Adafruit_SPIFlash *fl);
 void        flashio_set_verify(int on);
 uint32_t    flashio_error_count(void);
 const char *flashio_error_what(void);
@@ -25,6 +25,7 @@ static const uint32_t kExpectClusters = 1992;
 static const uint32_t kExpectDataLba  = 112;
 
 static bool     g_armed = false;
+inline void cancel() { g_armed = false; }
 static uint32_t g_armedAt = 0;
 static const uint32_t kArmWindowMs = 30000;
 
@@ -145,7 +146,10 @@ inline bool ensureFlash(Stream& out) {
 inline void mountReport(Stream& out) {
   out.println(F("---- mount ------------------------------------"));
   if (!ensureFlash(out)) { out.println(F("----------------------------------------------")); return; }
-  flashio_attach(&FlashCheck::g_flash);
+  if (!flashio_attach(&FlashCheck::g_flash)) {
+    out.println(F("  attach refused: dirty/faulted medium; stop."));
+    return;
+  }
   FRESULT r = f_mount(&g_fs, "", 1);
   out.print(F("  f_mount       : "));
   out.println(r == FR_OK ? F("FR_OK") : F("ERROR"));
@@ -257,7 +261,10 @@ inline void execute(Stream& out) {
 
   flashio_clear_errors();
   flashio_set_verify(1);          // 書き込みごとに読み戻して照合する
-  flashio_attach(&FlashCheck::g_flash);
+  if (!flashio_attach(&FlashCheck::g_flash)) {
+    out.println(F("  attach refused: dirty/faulted medium; stop."));
+    return;
+  }
 
   f_mount(NULL, "", 0);           // 念のためアンマウント
   uint32_t t0 = millis();

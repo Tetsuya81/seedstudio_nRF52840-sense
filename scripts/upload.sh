@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+require_hardware_clearance
 PORT_="$(detect_port)"
 echo "uploading to $PORT_ ..."
 arduino-cli compile -b "$FQBN" -u -p "$PORT_" "$SKETCH_DIR" "$@" || {

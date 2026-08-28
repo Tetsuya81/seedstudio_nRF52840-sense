@@ -6,17 +6,26 @@
   scripts/serial_console.py -s "p,1.0,d,1.0,p"   # コマンドと待ち秒数を順に実行
 """
 import argparse, codecs, glob, os, select, sys, termios, time
+from pathlib import Path
 
 BAUD = termios.B115200
 
 
+def require_hardware_clearance():
+    hold = Path(__file__).resolve().parents[1] / 'docs/collab/HARDWARE_HOLD'
+    if hold.is_file():
+        sys.exit('HARDWARE HOLD: 実機アクセス停止中。docs/safety/20260828-incident.md を確認してください。')
+
+
 def find_port():
+    require_hardware_clearance()
     for p in sorted(glob.glob('/dev/cu.usbmodem*')):
         return p
     sys.exit('XIAO nRF52840 が見つかりません (USB接続を確認してください)')
 
 
 def open_port(path):
+    require_hardware_clearance()
     fd = os.open(path, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
     attrs = termios.tcgetattr(fd)
     iflag, oflag, cflag, lflag, ispeed, ospeed, cc = attrs

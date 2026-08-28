@@ -14,6 +14,7 @@
 #include <Adafruit_TinyUSB.h>   // このコアでは Serial(USB CDC) にこれが必要
 
 #include "config.h"
+#include "SafetyPolicy.h"
 #include "ButtonEvent.h"
 #include "ButtonSource.h"
 #include "VirtualButtonSource.h"
@@ -38,6 +39,11 @@ static RecorderApp   g_app;
 // -------------------------------------------------------------
 static void printHelp() {
   Serial.println();
+  if (SafetyPolicy::kHardwareQuarantine) {
+    Serial.println(F("HARDWARE HOLD: MSC/flash/microphone/reset commands are disabled."));
+    Serial.println(F("Local simulation only: h ? s v p l d [ ] i x g"));
+    return;
+  }
   Serial.println(F("==== pebble_ring / phase1 : simulated button ===="));
   Serial.println(F("  p    短押し      (press for 80ms)"));
   Serial.println(F("  l    長押し      (press for 1200ms)"));
@@ -75,6 +81,16 @@ static void printHelp() {
 }
 
 static void handleCommand(char c, uint32_t now) {
+  if (c != 'Y') FormatCheck::cancel();
+  if (SafetyPolicy::kHardwareQuarantine && !SafetyPolicy::localOnlyCommand(c)) {
+    Serial.println(F("HARDWARE HOLD: command blocked; no device operation performed."));
+    return;
+  }
+  // Host read-only does not protect against this firmware changing the medium.
+  if (MscBridge::isExposed() && !SafetyPolicy::localOnlyCommand(c) && c != 'V') {
+    Serial.println(F("MSC owns the medium: local flash commands are blocked."));
+    return;
+  }
   switch (c) {
     case 'p': g_virtual.pressFor(kSimShortMs); break;
     case 'l': g_virtual.pressFor(kSimLongMs);  break;
@@ -135,7 +151,7 @@ static void handleCommand(char c, uint32_t now) {
 void setup() {
   // USB が列挙される前に MSC のインターフェースを登録する必要がある。
   // Serial.begin() より前に済ませる（公式作例 msc_external_flash.ino と同じ順）。
-  bool mscOk = FlashCheck::g_flash.begin(
+  bool mscOk = !SafetyPolicy::kHardwareQuarantine && FlashCheck::g_flash.begin(
       FlashCheck::kCandidates,
       sizeof(FlashCheck::kCandidates) / sizeof(FlashCheck::kCandidates[0]));
   if (mscOk) MscBridge::beginQuiet();
@@ -154,7 +170,7 @@ void setup() {
   Serial.print(F("flash: "));
   Serial.print(FlashCheck::g_flash.size());
   Serial.print(F(" bytes   MSC: "));
-  Serial.println(mscOk ? F("registered (hidden, read-only)") : F("NOT registered"));
+  Serial.println(mscOk ? F("registered (read-only)") : F("NOT registered (hardware hold or init failure)"));
   Serial.println(F("ready. type 'p' to simulate a short press."));
 }
 

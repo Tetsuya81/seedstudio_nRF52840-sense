@@ -1,5 +1,11 @@
 # pebble_ring — XIAO nRF52840 Sense 指輪型録音デバイス
 
+> **実機試験は停止中（2026-08-28）**：Macの突然停止を調査しています。
+> upload・シリアル接続・MSC再接続・電源断試験は行わないでください。
+> 現在は [ホスト模擬試験](tools/storage_safety/README.md) とビルドのみ実行できます。
+> [事故対応・再開条件](docs/safety/20260828-incident.md) を先に確認してください。
+> ソースの安全対策は未書込みで、基板に入っている旧ファームの挙動は変わっていません。
+
 Seeed Studio XIAO nRF52840 **Sense** を使った、Pebble Index 1 のような
 指輪型録音デバイスの開発リポジトリ。
 

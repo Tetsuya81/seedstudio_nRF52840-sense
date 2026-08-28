@@ -1,0 +1,4 @@
+ACTIVE: 2026-08-28 Mac unexpected power loss during USB validation.
+No upload, serial access, USB MSC mount/re-enumeration, or power-cut tests.
+Host-only builds and mock tests are allowed. See docs/safety/20260828-incident.md.
+Do not remove this hold without review of the restart conditions and user approval.

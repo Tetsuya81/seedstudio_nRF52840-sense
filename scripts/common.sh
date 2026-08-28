@@ -9,8 +9,16 @@ export LANG=${LANG:-en_US.UTF-8}
 FQBN="Seeeduino:nrf52:xiaonRF52840Sense"
 SKETCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/firmware/pebble_ring"
 
+require_hardware_clearance() {
+  if [[ -f "$SKETCH_DIR/../../docs/collab/HARDWARE_HOLD" ]]; then
+    echo "HARDWARE HOLD: 実機アクセス停止中。docs/safety/20260828-incident.md を確認してください。" >&2
+    return 1
+  fi
+}
+
 # XIAO nRF52840 のポートを自動検出 (VID 0x2886)
 detect_port() {
+  require_hardware_clearance || return 1
   if [[ -n "${PORT:-}" ]]; then echo "$PORT"; return; fi
   local p
   p=$(arduino-cli board list --format json 2>/dev/null \

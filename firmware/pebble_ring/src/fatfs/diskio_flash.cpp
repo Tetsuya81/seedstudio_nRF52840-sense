@@ -18,6 +18,7 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <Adafruit_SPIFlash.h>
+#include "../../SafetyPolicy.h"
 
 extern "C" {
 #include "ff.h"
@@ -33,6 +34,7 @@ static uint8_t            g_blk[BLK_SIZE];
 static uint32_t           g_blkAddr = INVALID;
 static bool               g_dirty   = false;
 static bool               g_verify  = true;
+static bool               g_faulted = false;
 
 // 直近の失敗の記録（報告用）
 static const char *g_errWhat  = NULL;
@@ -40,15 +42,20 @@ static uint32_t    g_errAddr  = 0;
 static uint32_t    g_errCount = 0;
 
 static void fail(const char *what, uint32_t addr) {
+  g_faulted = true;  // Latch: do not retry destructive writes after an I/O fault.
   g_errWhat = what;
   g_errAddr = addr;
   g_errCount++;
 }
 
-extern "C" void flashio_attach(Adafruit_SPIFlash *fl) {
+extern "C" int flashio_attach(Adafruit_SPIFlash *fl) {
+  if (!fl || g_faulted) return 0;
+  if (g_fl == fl) return 1;  // Re-mount must not discard pending data.
+  if (g_dirty) return 0;
   g_fl = fl;
   g_blkAddr = INVALID;
   g_dirty = false;
+  return 1;
 }
 extern "C" void flashio_set_verify(int on) { g_verify = on ? true : false; }
 extern "C" uint32_t flashio_error_count(void) { return g_errCount; }
@@ -78,6 +85,7 @@ static bool verifyBlock(uint32_t addr) {
 }
 
 static bool flushBlock(void) {
+  if (g_faulted) return false;
   if (!g_dirty || g_blkAddr == INVALID) return true;
 
   if (!g_fl->eraseSector(g_blkAddr / BLK_SIZE)) {
@@ -95,8 +103,10 @@ static bool flushBlock(void) {
 }
 
 static bool loadBlock(uint32_t addr) {
+  if (g_faulted) return false;
   if (g_blkAddr == addr) return true;
   if (!flushBlock()) return false;
+  g_blkAddr = INVALID;  // A failed/partial read must not keep the old address.
   if (g_fl->readBuffer(addr, g_blk, BLK_SIZE) != BLK_SIZE) {
     fail("readBuffer:load", addr);
     return false;
@@ -108,17 +118,15 @@ static bool loadBlock(uint32_t addr) {
 extern "C" int flashio_flush(void) { return flushBlock() ? 1 : 0; }
 
 extern "C" DSTATUS disk_status(BYTE pdrv) {
-  (void)pdrv;
-  return (g_fl && g_fl->size()) ? 0 : STA_NOINIT;
+  return (pdrv == 0 && g_fl && g_fl->size() && !g_faulted) ? 0 : STA_NOINIT;
 }
 
 extern "C" DSTATUS disk_initialize(BYTE pdrv) { return disk_status(pdrv); }
 
 extern "C" DRESULT disk_read(BYTE pdrv, BYTE *buff, DWORD sector, UINT count) {
-  (void)pdrv;
+  if (g_faulted) return RES_ERROR;
   if (!g_fl || !g_fl->size()) return RES_NOTRDY;
-  if ((uint64_t)(sector + count) * SEC_SIZE > g_fl->size()) {
-    fail("read:out of range", sector);
+  if (pdrv != 0 || !buff || !SafetyPolicy::sectorRange(sector, count, g_fl->size() / SEC_SIZE)) {
     return RES_PARERR;
   }
   if (!flushBlock()) return RES_ERROR;      // 未書き出しを残したまま読まない
@@ -131,10 +139,9 @@ extern "C" DRESULT disk_read(BYTE pdrv, BYTE *buff, DWORD sector, UINT count) {
 }
 
 extern "C" DRESULT disk_write(BYTE pdrv, const BYTE *buff, DWORD sector, UINT count) {
-  (void)pdrv;
+  if (g_faulted) return RES_ERROR;
   if (!g_fl || !g_fl->size()) return RES_NOTRDY;
-  if ((uint64_t)(sector + count) * SEC_SIZE > g_fl->size()) {
-    fail("write:out of range", sector);
+  if (pdrv != 0 || !buff || !SafetyPolicy::sectorRange(sector, count, g_fl->size() / SEC_SIZE)) {
     return RES_PARERR;
   }
   for (UINT i = 0; i < count; i++) {
@@ -148,7 +155,8 @@ extern "C" DRESULT disk_write(BYTE pdrv, const BYTE *buff, DWORD sector, UINT co
 }
 
 extern "C" DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff) {
-  (void)pdrv;
+  if (g_faulted) return RES_ERROR;
+  if (pdrv != 0 || (cmd != CTRL_SYNC && !buff)) return RES_PARERR;
   if (!g_fl || !g_fl->size()) return RES_NOTRDY;
   switch (cmd) {
     case CTRL_SYNC:

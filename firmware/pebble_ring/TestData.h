@@ -48,10 +48,10 @@ inline bool writeOne(Stream& out, uint16_t idx, uint32_t bytes) {
     if (r != FR_OK || bw != chunk) { ok = false; }
     crc = crc32(crc, g_buf, bw);
     written += bw;
-    if (bw < chunk) break;          // 満杯
+    if (r != FR_OK || bw < chunk) break;
   }
   FRESULT rs = f_sync(&f);
-  f_close(&f);
+  FRESULT rc = f_close(&f);
   uint32_t dt = millis() - t0;
 
   out.print(F("    ")); out.print(name);
@@ -60,9 +60,10 @@ inline bool writeOne(Stream& out, uint16_t idx, uint32_t bytes) {
   out.print(F("  ")); out.print(dt); out.print(F(" ms"));
   out.print(F("  sync=")); out.print(rs == FR_OK ? F("ok") : F("ERR"));
   out.print(F("  io_err=")); out.print(flashio_error_count());
-  if (written < bytes) out.print(F("   <- FULL"));
+  if (written < bytes) out.print(F("   <- SHORT (check FRESULT/io_err; not necessarily full)"));
+  out.print(F("  close=")); out.print(rc == FR_OK ? F("ok") : F("ERR"));
   out.println();
-  return ok && written == bytes;
+  return ok && written == bytes && rs == FR_OK && rc == FR_OK && flashio_error_count() == 0;
 }
 
 // ボリューム上の全ファイルを読み直して CRC32 とパターン一致を確認する
@@ -75,7 +76,8 @@ inline void verifyAll(Stream& out) {
     return;
   }
   uint16_t files = 0, bad = 0;
-  while (f_readdir(&dir, &fno) == FR_OK && fno.fname[0]) {
+  FRESULT dirResult;
+  while ((dirResult = f_readdir(&dir, &fno)) == FR_OK && fno.fname[0]) {
     files++;
     uint16_t idx = 0;
     // rec_NNN.adp から番号を取る
@@ -88,22 +90,29 @@ inline void verifyAll(Stream& out) {
       bad++; continue;
     }
     uint32_t crc = 0, off = 0, mismatch = 0;
+    bool readOk = true;
     for (;;) {
       UINT br = 0;
-      if (f_read(&f, g_buf, sizeof(g_buf), &br) != FR_OK || br == 0) break;
+      FRESULT rr = f_read(&f, g_buf, sizeof(g_buf), &br);
+      if (rr != FR_OK) { readOk = false; break; }
+      if (br == 0) break;
       for (UINT i = 0; i < br; i++) if (g_buf[i] != pat(idx, off + i)) mismatch++;
       crc = crc32(crc, g_buf, br);
       off += br;
     }
-    f_close(&f);
+    if (f_close(&f) != FR_OK) readOk = false;
+    if (off != fno.fsize) readOk = false;
     out.print(F("    ")); out.print(fno.fname);
     out.print(F("  ")); out.print(off); out.print(F(" B"));
     out.print(F("  crc32=0x")); out.print(crc, HEX);
     out.print(F("  pattern="));
-    if (mismatch == 0) out.println(F("ok"));
+    if (!readOk) { out.println(F("ERROR (read/close/size)")); bad++; }
+    else if (mismatch == 0) out.println(F("ok"));
     else { out.print(mismatch); out.println(F(" BYTES DIFFER")); bad++; }
   }
-  f_closedir(&dir);
+  if (dirResult != FR_OK || f_closedir(&dir) != FR_OK) {
+    out.println(F("  directory read/close ERROR")); bad++;
+  }
   out.print(F("  files=")); out.print(files);
   out.print(F("  bad=")); out.print(bad);
   out.print(F("  io_err=")); out.println(flashio_error_count());
@@ -114,7 +123,7 @@ inline void verifyAll(Stream& out) {
 inline void writeBasic(Stream& out) {
   out.println(F("---- write test files -------------------------"));
   flashio_clear_errors();
-  for (uint16_t i = 1; i <= 3; i++) writeOne(out, i, 60000);
+  for (uint16_t i = 1; i <= 3; i++) if (!writeOne(out, i, 60000)) break;
   out.println(F("----------------------------------------------"));
 }
 
@@ -142,6 +151,9 @@ inline void deleteBig(Stream& out) {
     FRESULT r = f_unlink(name);
     out.print(F("    ")); out.print(name); out.print(F("  "));
     out.println(r == FR_OK ? F("deleted") : (r == FR_NO_FILE ? F("(none)") : F("ERROR")));
+    if (r != FR_OK && r != FR_NO_FILE) {
+      out.println(F("  deletion stopped on error")); return;
+    }
   }
   DWORD nclst = 0; FATFS *fsp = NULL;
   if (f_getfree("", &nclst, &fsp) == FR_OK) {
@@ -155,10 +167,11 @@ inline void deleteBig(Stream& out) {
 //
 // 100,000 B ごとに f_sync して、その時点のオフセットを出力する。
 // 途中でケーブルを抜かれたとき、
-//   「最後に synced と表示されたオフセットまでは残っているはず」
-// という明確な期待値で判定できるようにするため。
+//   「この時点で同期に成功した」という観測点を記録する。
+// 後続のNOR消去・FAT更新中の電源断で、以前の同期済みデータも失い得る。
+// synced は将来の電源断後の生存を保証しない。現在はHARDWARE HOLDで実行禁止。
 inline void longWrite(Stream& out, uint32_t bytes = 1700000) {
-  out.println(F("---- long write (pull the cable during this) --"));
+  out.println(F("---- long write (lab protocol required) -------"));
   out.print(F("  target: rec_090.adp  ")); out.print(bytes); out.println(F(" bytes"));
   out.println(F("  100,000 B ごとに f_sync して到達点を報告します。"));
   out.flush();
@@ -173,19 +186,24 @@ inline void longWrite(Stream& out, uint32_t bytes = 1700000) {
   }
 
   uint32_t written = 0, crc = 0, nextSync = 100000;
+  bool ok = true;
   uint32_t t0 = millis();
   while (written < bytes) {
     uint32_t chunk = bytes - written;
     if (chunk > sizeof(g_buf)) chunk = sizeof(g_buf);
     for (uint32_t i = 0; i < chunk; i++) g_buf[i] = pat(idx, written + i);
     UINT bw = 0;
-    if (f_write(&f, g_buf, chunk, &bw) != FR_OK) break;
+    if (f_write(&f, g_buf, chunk, &bw) != FR_OK) { ok = false; break; }
     crc = crc32(crc, g_buf, bw);
     written += bw;
-    if (bw < chunk) break;
+    if (bw < chunk) { ok = false; break; }
 
     if (written >= nextSync) {
       FRESULT rs = f_sync(&f);
+      if (rs != FR_OK) {
+        out.println(F("  sync ERROR; stopped (no checkpoint claimed)."));
+        ok = false; break;
+      }
       out.print(F("  synced ")); out.print(written);
       out.print(F(" B  crc32_so_far=0x")); out.print(crc, HEX);
       out.print(F("  ")); out.print(millis() - t0); out.print(F(" ms"));
@@ -194,9 +212,10 @@ inline void longWrite(Stream& out, uint32_t bytes = 1700000) {
       nextSync += 100000;
     }
   }
-  f_sync(&f);
-  f_close(&f);
-  out.print(F("  DONE (not interrupted): ")); out.print(written);
+  FRESULT finalSync = f_sync(&f);
+  FRESULT closed = f_close(&f);
+  ok = ok && finalSync == FR_OK && closed == FR_OK && flashio_error_count() == 0;
+  out.print(ok ? F("  DONE (not interrupted): ") : F("  FAILED/SHORT: ")); out.print(written);
   out.print(F(" B  crc32=0x")); out.println(crc, HEX);
   out.println(F("----------------------------------------------"));
 }
@@ -205,13 +224,19 @@ inline void longWrite(Stream& out, uint32_t bytes = 1700000) {
 inline void assessAfterCut(Stream& out) {
   out.println(F("---- assess after power cut -------------------"));
   FIL f;
-  if (f_open(&f, "rec_090.adp", FA_READ) != FR_OK) {
-    out.println(F("  rec_090.adp : NOT FOUND (ディレクトリ登録前に切れた)"));
+  FRESULT opened = f_open(&f, "rec_090.adp", FA_READ);
+  if (opened != FR_OK) {
+    out.print(F("  rec_090.adp open FRESULT=")); out.println((int)opened);
+    out.println(F("  原因は未確定。未登録/消失とI/Oエラーを混同しない。"));
   } else {
     uint32_t off = 0, good = 0, crc = 0; uint32_t firstBad = 0xFFFFFFFF;
+    const uint32_t expectedSize = f_size(&f);
+    bool readOk = true;
     for (;;) {
       UINT br = 0;
-      if (f_read(&f, g_buf, sizeof(g_buf), &br) != FR_OK || br == 0) break;
+      FRESULT rr = f_read(&f, g_buf, sizeof(g_buf), &br);
+      if (rr != FR_OK) { readOk = false; break; }
+      if (br == 0) break;
       for (UINT i = 0; i < br; i++) {
         if (g_buf[i] == pat(90, off + i)) { if (firstBad == 0xFFFFFFFF) good++; }
         else if (firstBad == 0xFFFFFFFF) firstBad = off + i;
@@ -219,7 +244,8 @@ inline void assessAfterCut(Stream& out) {
       crc = crc32(crc, g_buf, br);
       off += br;
     }
-    f_close(&f);
+    if (f_close(&f) != FR_OK || off != expectedSize) readOk = false;
+    if (!readOk) out.println(F("  READ/CLOSE/SIZE ERROR: following values are partial, not a PASS."));
     out.print(F("  rec_090.adp size     : ")); out.println(off);
     out.print(F("  先頭からの連続一致長 : ")); out.println(good);
     out.print(F("  最初の不一致位置     : "));
