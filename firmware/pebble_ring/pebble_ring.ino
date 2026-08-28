@@ -25,6 +25,7 @@
 #include "FlashCheck.h"
 #include "FormatCheck.h"
 #include "TestData.h"
+#include "MscBridge.h"
 
 static VirtualButtonSource g_virtual;
 static GpioButtonSource    g_gpio(PIN_USER_BUTTON);   // Phase 6 用 (未配線)
@@ -58,6 +59,8 @@ static void printHelp() {
   Serial.println(F("  C    ボリューム上の全ファイルを照合 (CRC32 + パターン)"));
   Serial.println(F("  X    満杯試験 (240,000 B を書けなくなるまで)"));
   Serial.println(F("  R    ソフトリセット (再起動後の永続性確認用)"));
+  Serial.println(F("  E    USBマスストレージでMacへ見せる (read-only)"));
+  Serial.println(F("  V    Macから隠す"));
   Serial.println(F("  h    このヘルプ"));
   Serial.println(F("------------------------------------------------"));
   Serial.println(F("  SLEEP --long--> IDLE --short--> RECORDING"));
@@ -113,6 +116,8 @@ static void handleCommand(char c, uint32_t now) {
     case 'C': TestData::verifyAll(Serial); break;
     case 'X': TestData::fillTest(Serial); break;
     case 'R': Serial.println(F("resetting...")); Serial.flush(); delay(50); NVIC_SystemReset(); break;
+    case 'E': MscBridge::expose(Serial); break;
+    case 'V': MscBridge::hide(Serial); break;
     case 'h': case '?': printHelp(); break;
     default: break;
   }
@@ -120,6 +125,13 @@ static void handleCommand(char c, uint32_t now) {
 
 // -------------------------------------------------------------
 void setup() {
+  // USB が列挙される前に MSC のインターフェースを登録する必要がある。
+  // Serial.begin() より前に済ませる（公式作例 msc_external_flash.ino と同じ順）。
+  bool mscOk = FlashCheck::g_flash.begin(
+      FlashCheck::kCandidates,
+      sizeof(FlashCheck::kCandidates) / sizeof(FlashCheck::kCandidates[0]));
+  if (mscOk) MscBridge::beginQuiet();
+
   Serial.begin(115200);
   // USB CDC が上がるまで少し待つ (最大3秒。未接続でも先へ進む)
   uint32_t t0 = millis();
@@ -131,6 +143,10 @@ void setup() {
   g_detector.begin(g_button->isDown(), millis());
 
   printHelp();
+  Serial.print(F("flash: "));
+  Serial.print(FlashCheck::g_flash.size());
+  Serial.print(F(" bytes   MSC: "));
+  Serial.println(mscOk ? F("registered (hidden, read-only)") : F("NOT registered"));
   Serial.println(F("ready. type 'p' to simulate a short press."));
 }
 

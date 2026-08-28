@@ -56,6 +56,10 @@ extern "C" const char *flashio_error_what(void) { return g_errWhat ? g_errWhat :
 extern "C" uint32_t flashio_error_addr(void) { return g_errAddr; }
 extern "C" void flashio_clear_errors(void) { g_errWhat = NULL; g_errAddr = 0; g_errCount = 0; }
 
+// 未書き出しのブロックを媒体へ確定させる。
+// ホストへ見せる前に必ず呼ぶ（見せている間はこちらから書かない）。
+extern "C" int flashio_flush(void);
+
 // 書き込み後に媒体から読み直して一致を確認する。
 // キャッシュを経由しない readBuffer を使う。
 static bool verifyBlock(uint32_t addr) {
@@ -100,6 +104,8 @@ static bool loadBlock(uint32_t addr) {
   g_blkAddr = addr;
   return true;
 }
+
+extern "C" int flashio_flush(void) { return flushBlock() ? 1 : 0; }
 
 extern "C" DSTATUS disk_status(BYTE pdrv) {
   (void)pdrv;
