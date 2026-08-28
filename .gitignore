@@ -13,3 +13,8 @@ build/
 .vscode/
 .idea/
 *.swp
+
+# ホスト側検証ハーネスのビルド成果物
+tools/fatfs_host/mkfs_f1
+tools/fatfs_host/mkfs_f2
+tools/fatfs_host/*.img
