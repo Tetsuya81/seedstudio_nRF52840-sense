@@ -41,7 +41,7 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff) {
   (void)pdrv;
   if (!g_fp) return RES_NOTRDY;
   switch (cmd) {
-    case CTRL_SYNC:        fflush(g_fp);                 return RES_OK;
+    case CTRL_SYNC:        return fflush(g_fp) == 0 ? RES_OK : RES_ERROR;
     case GET_SECTOR_COUNT: *(DWORD *)buff = g_sectors;   return RES_OK;
     case GET_SECTOR_SIZE:  *(WORD  *)buff = 512;         return RES_OK;
     case GET_BLOCK_SIZE:   *(DWORD *)buff = 8;           return RES_OK;

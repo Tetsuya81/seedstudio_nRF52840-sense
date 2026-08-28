@@ -34,6 +34,8 @@ static const SPIFlash_Device_t kCandidates[] = {
 };
 
 // 16kHz/16bit モノラルを基準にした保存レート (bytes/sec)
+static const uint32_t kExpectedSize  = 2097152;   // P25Q16H
+
 static const uint32_t kRatePcm16k    = 32000;
 static const uint32_t kRateAdpcm16k  = 8000;
 static const uint32_t kRateAdpcm8k   = 4000;

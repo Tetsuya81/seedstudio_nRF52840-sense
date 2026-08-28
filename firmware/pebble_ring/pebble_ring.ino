@@ -24,6 +24,7 @@
 #include "MicCheck.h"
 #include "FlashCheck.h"
 #include "FormatCheck.h"
+#include "TestData.h"
 
 static VirtualButtonSource g_virtual;
 static GpioButtonSource    g_gpio(PIN_USER_BUTTON);   // Phase 6 用 (未配線)
@@ -53,6 +54,10 @@ static void printHelp() {
   Serial.println(F("  S    フラッシュ内容スキャン (非破壊。消す前の確認用)"));
   Serial.println(F("  M    FATをマウントして容量とファイル一覧を表示"));
   Serial.println(F("  Z    フォーマットの予約 (30秒以内に Y で実行)"));
+  Serial.println(F("  W    テストファイルを3本書く (60,000 B)"));
+  Serial.println(F("  C    ボリューム上の全ファイルを照合 (CRC32 + パターン)"));
+  Serial.println(F("  X    満杯試験 (240,000 B を書けなくなるまで)"));
+  Serial.println(F("  R    ソフトリセット (再起動後の永続性確認用)"));
   Serial.println(F("  h    このヘルプ"));
   Serial.println(F("------------------------------------------------"));
   Serial.println(F("  SLEEP --long--> IDLE --short--> RECORDING"));
@@ -104,6 +109,10 @@ static void handleCommand(char c, uint32_t now) {
     case 'M': FormatCheck::mountReport(Serial); break;
     case 'Z': FormatCheck::arm(Serial); break;
     case 'Y': FormatCheck::execute(Serial); break;
+    case 'W': TestData::writeBasic(Serial); break;
+    case 'C': TestData::verifyAll(Serial); break;
+    case 'X': TestData::fillTest(Serial); break;
+    case 'R': Serial.println(F("resetting...")); Serial.flush(); delay(50); NVIC_SystemReset(); break;
     case 'h': case '?': printHelp(); break;
     default: break;
   }

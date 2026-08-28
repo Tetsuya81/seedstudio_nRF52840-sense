@@ -125,8 +125,26 @@ inline void verifyLayout(Stream& out) {
               ? F("MATCHES host measurement") : F("DIFFERS from host measurement"));
 }
 
+// フラッシュが初期化済みであることを保証する。
+// begin() を呼ばずに使うと disk_status() が STA_NOINIT を返し、
+// f_mount が FR_NOT_READY(3) になる。戻り値は必ず確認する。
+inline bool ensureFlash(Stream& out) {
+  if (FlashCheck::g_flash.size() == FlashCheck::kExpectedSize) return true;
+  bool ok = FlashCheck::g_flash.begin(
+      FlashCheck::kCandidates,
+      sizeof(FlashCheck::kCandidates) / sizeof(FlashCheck::kCandidates[0]));
+  if (!ok || FlashCheck::g_flash.size() == 0) {
+    out.print(F("  flash.begin() FAILED (size="));
+    out.print(FlashCheck::g_flash.size());
+    out.println(F(") -> abort"));
+    return false;
+  }
+  return true;
+}
+
 inline void mountReport(Stream& out) {
   out.println(F("---- mount ------------------------------------"));
+  if (!ensureFlash(out)) { out.println(F("----------------------------------------------")); return; }
   flashio_attach(&FlashCheck::g_flash);
   FRESULT r = f_mount(&g_fs, "", 1);
   out.print(F("  f_mount       : "));

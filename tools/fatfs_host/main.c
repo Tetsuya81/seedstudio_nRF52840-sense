@@ -92,14 +92,18 @@ static void dump(const char *path) {
   printf("  FAT12境界(4085)までの余裕 = %ld クラスタ\n", 4085L - (long)clusters);
 }
 
-static void trial(const char *label, BYTE opt, DWORD au, const char *path) {
+static int g_failures = 0;
+
+static int trial(const char *label, BYTE opt, DWORD au, const char *path) {
   printf("\n== %s ==\n", label);
-  if (make_blank(path) != 0)      { printf("  cannot create image\n"); return; }
-  if (disk_attach(path, IMG_SECTORS) != 0) { printf("  cannot attach\n"); return; }
+  if (make_blank(path) != 0)      { printf("  cannot create image\n"); g_failures++; return -1; }
+  if (disk_attach(path, IMG_SECTORS) != 0) { printf("  cannot attach\n"); g_failures++; return -1; }
   FRESULT r = f_mkfs("", opt, au, g_work, sizeof(g_work));
   disk_detach();
   printf("  f_mkfs -> %s (%d)\n", r == FR_OK ? "FR_OK" : "ERROR", (int)r);
-  if (r == FR_OK) dump(path);
+  if (r != FR_OK) { g_failures++; return -1; }
+  dump(path);
+  return 0;
 }
 
 static char g_dir[1024] = ".";
@@ -117,5 +121,6 @@ int main(int argc, char **argv) {
   trial("FM_FAT | FM_SFD, au=1024", FM_FAT | FM_SFD, 1024, imgpath("pr_sfd.img"));
   trial("FM_FAT (MBR),    au=1024", FM_FAT,          1024, imgpath("pr_mbr.img"));
   trial("FM_FAT (MBR),    au=512 ", FM_FAT,          512,  imgpath("pr_mbr512.img"));
-  return 0;
+  printf("\nfailures: %d\n", g_failures);
+  return g_failures ? 1 : 0;   /* 失敗を終了値に反映する */
 }
