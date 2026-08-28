@@ -90,6 +90,15 @@ static void dump(const char *path) {
          (unsigned long)(databytes / 8000),
          (unsigned long)((databytes % 8000) * 1000 / 8000));
   printf("  FAT12境界(4085)までの余裕 = %ld クラスタ\n", 4085L - (long)clusters);
+  {
+    DWORD dataLba = b_vol + firstdat;
+    DWORD spcSec  = spc;
+    int aligned   = (dataLba % 8 == 0) && (spcSec % 8 == 0);
+    printf("  クラスタ<->4KiB消去ブロック: %s\n",
+           aligned ? "1:1 整列（1クラスタ = 1消去ブロック、他ファイルと非共有）"
+                   : (spcSec < 8 ? "共有あり（1消去ブロックに複数クラスタ = 複数ファイルが同居し得る）"
+                                 : "未整列"));
+  }
 }
 
 static int g_failures = 0;
@@ -121,6 +130,7 @@ int main(int argc, char **argv) {
   trial("FM_FAT | FM_SFD, au=1024", FM_FAT | FM_SFD, 1024, imgpath("pr_sfd.img"));
   trial("FM_FAT (MBR),    au=1024", FM_FAT,          1024, imgpath("pr_mbr.img"));
   trial("FM_FAT (MBR),    au=512 ", FM_FAT,          512,  imgpath("pr_mbr512.img"));
+  trial("FM_FAT (MBR),    au=4096", FM_FAT,          4096, imgpath("pr_mbr4k.img"));
   printf("\nfailures: %d\n", g_failures);
   return g_failures ? 1 : 0;   /* 失敗を終了値に反映する */
 }
