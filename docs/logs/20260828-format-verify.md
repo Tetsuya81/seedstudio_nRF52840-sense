@@ -111,3 +111,75 @@ I/Oエラーではなく、`f_write` の短書き込みによるクリーンな�
 | `f_mkfs` | 362 ms |
 
 16kHz IMA ADPCM の必要レートは 8 kB/s なので、**約8〜10倍の余裕**がある。
+
+---
+
+# USB MSC の検証（同日、追記）
+
+## 列挙
+
+```
+bInterfaceClass = 8 / IOUSBMassStorageDriver がロード
+/dev/disk4 (external, physical)   FDisk_partition_scheme  *2.1 MB
+  disk4s1  DOS_FAT_12  NO NAME
+```
+
+## read-only であること
+
+```
+/dev/disk4s1 on /Volumes/NO NAME
+  (msdos, local, nodev, nosuid, read-only, noowners, noatime, fskit)
+
+$ touch "/Volumes/NO NAME/writetest.txt"
+touch: /Volumes/NO NAME/writetest.txt: Read-only file system
+```
+
+`tud_msc_is_writable_cb()` を false にする方式が意図どおり機能し、
+**書き込みはEROFSでクリーンに拒否**される。
+
+## macOS のメタデータが作られないこと
+
+ボリューム上のエントリは REC_*.ADP の11本のみ。
+`._<name>`（AppleDouble）も `.Trashes` も `.Spotlight-V100` も `.fseventsd` も
+作られていない。→ F-24 の寄生を read-only 化で実際に防げている。
+
+## 基板 → Mac のコピーと内容照合
+
+```
+file               size     expect     actual  result
+REC_001.ADP       60000 0xC0BC0466 0xC0BC0466  OK
+REC_002.ADP       60000 0xB6474878 0xB6474878  OK
+REC_003.ADP       60000 0x12000169 0x12000169  OK
+REC_010.ADP      240000 0xAAE77440 0xAAE77440  OK
+REC_011.ADP      240000 0x50F2F981 0x50F2F981  OK
+REC_012.ADP      240000 0x55157FFD 0x55157FFD  OK
+REC_013.ADP      240000 0x29CF449C 0x29CF449C  OK
+REC_014.ADP      240000 0x2E50160B 0x2E50160B  OK
+REC_015.ADP      240000 0x2213F4DD 0x2213F4DD  OK
+REC_016.ADP      240000 0x7E2E776A 0x7E2E776A  OK
+REC_017.ADP      174080 0xC374A3EE 0xC374A3EE  OK
+
+合計 2,034,080 bytes  不一致 0 件
+```
+
+期待値は基板が書き込み時に計算した CRC32。**全11本が一致**した。
+`diskutil eject` も正常に完了。
+
+## メディア出現の検知について
+
+起動時に `setUnitReady(false)` にしておくと、macOS は列挙時の初回プローブで
+メディア無しと判定し、その後 `setUnitReady(true)` にしても**自発的に再プローブしない**。
+起動時から ready にするか、`USBDevice.detach()/attach()` で再列挙させる必要がある。
+
+## 誤診の記録（自戒）
+
+途中で「read-only ボリュームへの書き込み試行でボリュームが wedge した」と
+判断してユーザーに物理的な抜き差しを依頼したが、**これは誤りだった**。
+
+実際には `touch` は `Read-only file system` で即座に失敗しており、
+`diskutil unmountDisk force` も成功していた。
+ハングに見えたのは、こちらが復旧コマンドを重ねて発行したために
+`diskutil` / `mount` / `ls` が互いを待ち、ツール側のタイムアウトに
+当たっただけだった。デバイス側の不具合ではない。
+
+**バックグラウンドに落ちたコマンドの出力を確認する前に結論を出したのが原因。**
