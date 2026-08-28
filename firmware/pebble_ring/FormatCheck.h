@@ -178,6 +178,58 @@ inline void mountReport(Stream& out) {
   out.println(F("----------------------------------------------"));
 }
 
+// 媒体上の整合性検査。FatFs もブロック層も経由せず直接読む。
+// 電源断のあとに「FAT2面が食い違っていないか」を見るためのもの。
+inline void integrityCheck(Stream& out) {
+  out.println(F("---- integrity check (direct from media) ------"));
+  if (!ensureFlash(out)) { out.println(F("----------------------------------------------")); return; }
+
+  uint8_t s0[512], bpb[512];
+  if (FlashCheck::g_flash.readBuffer(0, s0, 512) != 512) {
+    out.println(F("  readBuffer(LBA0) failed")); return;
+  }
+  uint32_t b_vol = 0;
+  bool has_mbr = !((s0[0] == 0xEB || s0[0] == 0xE9) && rd16(s0 + 11) == 512);
+  if (has_mbr) b_vol = rd32(s0 + 446 + 8);
+  if (FlashCheck::g_flash.readBuffer(b_vol * 512, bpb, 512) != 512) {
+    out.println(F("  readBuffer(BPB) failed")); return;
+  }
+
+  uint16_t rsvd = rd16(bpb + 14);
+  uint8_t  nfat = bpb[16];
+  uint16_t fsz  = rd16(bpb + 22);
+  uint32_t lbaFat1 = b_vol + rsvd;
+  uint32_t lbaFat2 = lbaFat1 + fsz;
+
+  out.print(F("  BPB signature : 0x"));
+  out.print(bpb[510], HEX); out.print(' '); out.println(bpb[511], HEX);
+  out.print(F("  nfats=")); out.print(nfat);
+  out.print(F("  fatsz=")); out.print(fsz);
+  out.print(F("  FAT1 LBA=")); out.print(lbaFat1);
+  out.print(F("  FAT2 LBA=")); out.println(lbaFat2);
+
+  if (nfat < 2) { out.println(F("  (single FAT: nothing to compare)")); }
+  else {
+    uint8_t a[256], b[256];
+    uint32_t diff = 0, firstDiff = 0xFFFFFFFF;
+    for (uint32_t off = 0; off < (uint32_t)fsz * 512; off += sizeof(a)) {
+      if (FlashCheck::g_flash.readBuffer(lbaFat1 * 512 + off, a, sizeof(a)) != sizeof(a) ||
+          FlashCheck::g_flash.readBuffer(lbaFat2 * 512 + off, b, sizeof(b)) != sizeof(b)) {
+        out.println(F("  readBuffer(FAT) failed")); return;
+      }
+      for (uint16_t i = 0; i < sizeof(a); i++) {
+        if (a[i] != b[i]) { diff++; if (firstDiff == 0xFFFFFFFF) firstDiff = off + i; }
+      }
+    }
+    out.print(F("  FAT1 vs FAT2  : "));
+    if (!diff) out.println(F("IDENTICAL (2面が一致)"));
+    else {
+      out.print(diff); out.print(F(" bytes differ, first at offset ")); out.println(firstDiff);
+    }
+  }
+  out.println(F("----------------------------------------------"));
+}
+
 inline void arm(Stream& out) {
   out.println(F("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"));
   out.println(F("  この操作は 2MiB の録音領域を初期化します。"));

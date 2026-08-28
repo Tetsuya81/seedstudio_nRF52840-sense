@@ -61,6 +61,10 @@ static void printHelp() {
   Serial.println(F("  R    ソフトリセット (再起動後の永続性確認用)"));
   Serial.println(F("  E    USBマスストレージでMacへ見せる (read-only)"));
   Serial.println(F("  V    Macから隠す"));
+  Serial.println(F("  D    REC_010..017 を削除して空きを作る"));
+  Serial.println(F("  L    長い書き込み (電源断試験用。100KBごとにsync報告)"));
+  Serial.println(F("  A    電源断後の判定 (どこまで残ったか)"));
+  Serial.println(F("  G    媒体上の整合性検査 (BPB と FAT1/FAT2 の一致)"));
   Serial.println(F("  h    このヘルプ"));
   Serial.println(F("------------------------------------------------"));
   Serial.println(F("  SLEEP --long--> IDLE --short--> RECORDING"));
@@ -118,6 +122,10 @@ static void handleCommand(char c, uint32_t now) {
     case 'R': Serial.println(F("resetting...")); Serial.flush(); delay(50); NVIC_SystemReset(); break;
     case 'E': MscBridge::expose(Serial); break;
     case 'V': MscBridge::hide(Serial); break;
+    case 'D': TestData::deleteBig(Serial); break;
+    case 'L': TestData::longWrite(Serial); break;
+    case 'A': TestData::assessAfterCut(Serial); break;
+    case 'G': FormatCheck::integrityCheck(Serial); break;
     case 'h': case '?': printHelp(); break;
     default: break;
   }
