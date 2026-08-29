@@ -13,6 +13,8 @@ void disk_detach(void);
 
 #define IMG_BYTES   2097152UL
 #define IMG_SECTORS (IMG_BYTES / 512)
+/* 索引領域を末尾に予約したときの FAT ボリューム用セクタ数 */
+static DWORD g_volSectors = IMG_SECTORS;   /* IMG_SECTORS_ARG */
 
 static BYTE g_work[4096];
 
@@ -106,7 +108,7 @@ static int g_failures = 0;
 static int trial(const char *label, BYTE opt, DWORD au, const char *path) {
   printf("\n== %s ==\n", label);
   if (make_blank(path) != 0)      { printf("  cannot create image\n"); g_failures++; return -1; }
-  if (disk_attach(path, IMG_SECTORS) != 0) { printf("  cannot attach\n"); g_failures++; return -1; }
+  if (disk_attach(path, g_volSectors) != 0) { printf("  cannot attach\n"); g_failures++; return -1; }
   FRESULT r = f_mkfs("", opt, au, g_work, sizeof(g_work));
   disk_detach();
   printf("  f_mkfs -> %s (%d)\n", r == FR_OK ? "FR_OK" : "ERROR", (int)r);
@@ -131,6 +133,14 @@ int main(int argc, char **argv) {
   trial("FM_FAT (MBR),    au=1024", FM_FAT,          1024, imgpath("pr_mbr.img"));
   trial("FM_FAT (MBR),    au=512 ", FM_FAT,          512,  imgpath("pr_mbr512.img"));
   trial("FM_FAT (MBR),    au=4096", FM_FAT,          4096, imgpath("pr_mbr4k.img"));
+
+  /* 索引領域を末尾に予約した場合。GET_SECTOR_COUNT が減るだけで
+     f_mkfs はその範囲にしかボリュームを作らない。 */
+  g_volSectors = IMG_SECTORS - (64 * 1024 / 512);   /* 索引 64KiB */
+  trial("au=4096 + index 64KiB reserved", FM_FAT,   4096, imgpath("pr_idx64.img"));
+  g_volSectors = IMG_SECTORS - (128 * 1024 / 512);  /* 索引 128KiB */
+  trial("au=4096 + index 128KiB reserved", FM_FAT,  4096, imgpath("pr_idx128.img"));
+  g_volSectors = IMG_SECTORS;
   printf("\nfailures: %d\n", g_failures);
   return g_failures ? 1 : 0;   /* 失敗を終了値に反映する */
 }
