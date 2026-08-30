@@ -97,6 +97,30 @@ static void bankScanAndFence() {
   assert(!scan.deviceSafe);
 }
 
+
+static void dataScanContract() {
+  DataScanState scan;
+  beginDataScan(&scan);
+  for (uint16_t block = 0; block < kDataBlocks; ++block) scanDataBlock(&scan, block);
+  finishDataScan(&scan);
+  assert(scan.deviceSafe && scan.blocksScanned == kDataBlocks);
+
+  beginDataScan(&scan);
+  for (uint16_t block = 0; block < kDataBlocks - 1; ++block) scanDataBlock(&scan, block);
+  finishDataScan(&scan);
+  assert(!scan.deviceSafe && scan.blocksScanned == kDataBlocks - 1);
+
+  beginDataScan(&scan);
+  scanDataBlock(&scan, 1);
+  finishDataScan(&scan);
+  assert(!scan.deviceSafe && scan.blocksScanned == 0);
+
+  beginDataScan(&scan);
+  scanDataBlock(&scan, 0);
+  scanDataBlock(&scan, 0);
+  finishDataScan(&scan);
+  assert(!scan.deviceSafe && scan.blocksScanned == 1);
+}
 static void reservations() {
   PageReservation r = {125, 1, 20, true};
   assert(rawFreePages(r) == 3);
@@ -112,6 +136,7 @@ static void reservations() {
 int main() {
   formats();
   bankScanAndFence();
+  dataScanContract();
   reservations();
   puts("ALL PEBBLE FORMAT TESTS PASSED (no STL, heap, device, or filesystem)");
 }

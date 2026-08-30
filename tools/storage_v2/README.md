@@ -18,8 +18,9 @@ The suite covers:
   high-water marks, and interrupted compaction
 - a synthesized read-only FAT12 volume exposing only Tier A recordings while
   removing each physical 32-byte PRB1 header
-- shared freestanding format scanning with a runtime assertion that all index
-  pages 1..127 were visited exactly once and in order
+- shared freestanding format scanning with runtime assertions that index pages
+  1..127 and all 496 data blocks were visited exactly once and in order
+- a boot mutation gate and allocation only from a fully reconciled ownership map
 - reboot fencing, fresh-erase allocation, and device/record/block isolation
 - deferred full-body verification and a frozen diagnostic `STATUS.TXT` with
   capacity pressure, incomplete/body-mismatch counts, and backup advice

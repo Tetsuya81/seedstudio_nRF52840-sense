@@ -257,6 +257,27 @@ void finishBankScan(BankScanState* state) {
   state->nextWritePage = next < kPagesPerBank ? static_cast<uint8_t>(next) : 0xFF;
 }
 
+void beginDataScan(DataScanState* state) {
+  if (!state) return;
+  state->deviceSafe = true;
+  state->blocksScanned = 0;
+  state->nextExpectedBlock = 0;
+}
+
+void scanDataBlock(DataScanState* state, uint16_t blockIndex) {
+  if (!state || blockIndex >= kDataBlocks || blockIndex != state->nextExpectedBlock) {
+    if (state) state->deviceSafe = false;
+    return;
+  }
+  ++state->blocksScanned;
+  ++state->nextExpectedBlock;
+}
+
+void finishDataScan(DataScanState* state) {
+  if (!state) return;
+  if (state->blocksScanned != kDataBlocks) state->deviceSafe = false;
+}
+
 BankChoice chooseActiveBank(bool bank0Valid, uint32_t generation0,
                             bool bank1Valid, uint32_t generation1) {
   BankChoice choice = {true, -1};

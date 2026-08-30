@@ -20,14 +20,39 @@ from P1/P2 to firmware integration cannot silently drop it.
 | F4 | Consume EraseToken/page reservation on every program attempt, success or failure. Never program the same page twice in one erase epoch. | Host/mock fault injection must show the token consumed after a failed attempt. | Interrupt data-page and index-page programs independently; reboot must choose a different page/block and must not resume an incomplete recording. |
 | F5 | During all of EXPORT_AUDIO and EXPORT_RAW, program and erase counters remain exactly zero. | Enter/leave both export modes and compare counters before/after; only reads are permitted. | Repeat after G2 has Tier A, incomplete, deleted, and quarantined fixtures; counter delta must still be zero. |
 | F6 | Before every index program, read the selected 256-byte page and require all FF. On failure, perform no mutation and latch DEVICE_SAFE for the boot. | Mock a non-FF selected page and require zero program/erase delta. | Reboot-fence fixture plus injected occupied target must fail closed without touching another page. |
+| F7 | Keep every data/index mutation gate closed until both index banks have passed F1, all 496 data blocks have been visited exactly once in order, and the complete ownership map has been reconciled with the index. Allocate only from that verified map; never from partial scan results. | A recording request before scan completion is rejected; diagnostics show scan completion before allocation enablement. Host/mock shortened, skipped, or duplicate data-block scans latch DEVICE_SAFE. | With Tier B and COMMITTED_UNVERIFIED fixtures present, an immediate recording request causes zero program/erase delta on every protected block. After scan completion, protected blocks remain ineligible while a verified free/deleted block may be fresh-erased under F2/F3. |
 
 G1 remains “recording-flash non-destructive,” not globally non-destructive: firmware upload
 itself changes device state. G2 requires G0 completion, explicit user approval, and a
 verified backup as defined by the roadmap and incident review.
 
+FORMAT is an explicit G2 provisioning operation, not a normal runtime allocation path.
+It requires its separate approval and must leave the runtime mutation gate closed until
+the new PRBH/READY state and all 496 data blocks have been scanned and reconciled.
+
 Capacity reporting uses the reboot-safe index budget derived from `lastOccupied + 2`.
 During the current boot this can under-report the in-RAM cursor by one page; the conservative
 value is intentional so `STATUS.TXT` never promises capacity that a restart would consume.
+
+## Host-proof boundary
+
+The P1/P2 suite proves the following only in the host model:
+
+- PRB1/PRBH/PRR1 encoding and strict decoding, CRC, Tier and conflict decisions
+- boot fencing, fresh-erase ordering rules, and device/record/block isolation
+- index/data scan and capacity invariants, ownership reconciliation, and boot mutation gating
+- synthesized read-only FAT12 output and frozen STATUS.TXT behavior
+- low-battery write count, reservation behavior, and modeled interruption points
+
+It does not prove:
+
+- the production firmware flash driver, arbiter, allocator, or F1..F7 integration
+- TinyUSB MSC callback behavior or macOS mount, re-enumeration, and raw-LUN behavior
+- real-NOR power-loss behavior or marginal-cell retention
+- low-battery electrical time/voltage margin
+- production throughput or actual RAM/flash usage
+
+A host PASS must not be cited as device evidence for any item in the second list.
 
 ## Low-battery acceptance condition for G0 planning
 

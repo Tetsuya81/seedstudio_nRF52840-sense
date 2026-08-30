@@ -65,13 +65,18 @@ struct BlockScan {
   size_t quarantined = 0;
   std::vector<uint32_t> quarantinedPhysical;
   uint32_t occupied = 0;
+  bool safe = true;
+  uint16_t blocksScanned = 0;
 };
 
 BlockScan scanBlocks(const NorMedium& medium) {
   BlockScan result;
+  pebble_format::DataScanState scan;
+  pebble_format::beginDataScan(&scan);
   std::array<uint8_t, 32> headerBytes{};
   for (uint32_t block = 0; block < kDataBlocks; ++block) {
     const uint32_t address = block * kEraseBytes;
+    pebble_format::scanDataBlock(&scan, static_cast<uint16_t>(block));
     if (medium.isAllFF(address, kEraseBytes)) continue;
     ++result.occupied;
     medium.read(address, headerBytes.data(), headerBytes.size());
@@ -83,6 +88,9 @@ BlockScan scanBlocks(const NorMedium& medium) {
     }
     result.byRecording[header.recId][header.blockIndex].push_back(block);
   }
+  pebble_format::finishDataScan(&scan);
+  result.safe = scan.deviceSafe;
+  result.blocksScanned = scan.blocksScanned;
   return result;
 }
 
@@ -217,18 +225,30 @@ bool decodeIndexRecordPage(const uint8_t* p, IndexRecord* r) {
 
 StorageModel::StorageModel() = default;
 
-void StorageModel::restart() {
+void StorageModel::beginRestart() {
   ++bootEpoch_;
+  bootScanComplete_ = false;
   indexCursorValid_ = false;
   indexMutationFaulted_ = false;
   indexCursorBank_ = -1;
   indexWritePage_ = 0;
-  const ScanResult boot = scan();
-  if (boot.deviceSafe && boot.activeBank >= 0) {
+}
+
+bool StorageModel::completeRestartScan() {
+  const ScanResult boot = scan(false);
+  bootScanComplete_ = boot.deviceSafe && boot.activeBank >= 0 &&
+                      boot.dataBlocksScanned == kDataBlocks;
+  if (bootScanComplete_) {
     indexCursorValid_ = true;
     indexCursorBank_ = boot.activeBank;
     indexWritePage_ = boot.nextWritePage;
   }
+  return bootScanComplete_;
+}
+
+void StorageModel::restart() {
+  beginRestart();
+  (void)completeRestartScan();
 }
 
 bool StorageModel::program(uint32_t address, const uint8_t page[kPageBytes], size_t bits) {
@@ -244,6 +264,7 @@ bool StorageModel::erase(uint32_t address, size_t bits) {
 }
 
 bool StorageModel::format(uint32_t nextRecId, uint32_t nextSeq) {
+  bootScanComplete_ = false;
   for (uint32_t off = 0; off < kIndexBankBytes; off += kEraseBytes) {
     if (!erase(bankAddress(0) + off) ||
         !medium_.isAllFF(bankAddress(0) + off, kEraseBytes)) return false;
@@ -268,7 +289,10 @@ bool StorageModel::format(uint32_t nextRecId, uint32_t nextSeq) {
   indexMutationFaulted_ = false;
   indexCursorBank_ = 0;
   indexWritePage_ = 2;
-  return true;
+  const ScanResult formatted = scan(false);
+  bootScanComplete_ = formatted.deviceSafe && formatted.activeBank == 0 &&
+                      formatted.dataBlocksScanned == kDataBlocks;
+  return bootScanComplete_;
 }
 
 bool StorageModel::writeRecording(uint32_t recId, const std::vector<uint8_t>& audio,
@@ -276,6 +300,22 @@ bool StorageModel::writeRecording(uint32_t recId, const std::vector<uint8_t>& au
                                   size_t tornBlock, size_t tornPage, size_t tornBits) {
   const size_t needed = (audio.size() + kPayloadBytes - 1) / kPayloadBytes;
   if (needed != placement.size()) return false;
+  if (!bootScanComplete_) return false;
+  const ScanResult ownership = scan(false);
+  if (!ownership.deviceSafe || ownership.dataBlocksScanned != kDataBlocks) return false;
+  std::set<uint32_t> uniqueBlocks;
+  std::array<uint8_t, 32> oldHeaderBytes{};
+  for (uint32_t block : placement) {
+    if (block >= kDataBlocks || !uniqueBlocks.insert(block).second) return false;
+    const uint32_t address = block * kEraseBytes;
+    if (medium_.isAllFF(address, kEraseBytes)) continue;
+    DataHeader oldHeader;
+    if (!medium_.read(address, oldHeaderBytes.data(), oldHeaderBytes.size()) ||
+        !decodeDataHeaderPage(oldHeaderBytes.data(), &oldHeader) ||
+        std::find(ownership.deleted.begin(), ownership.deleted.end(), oldHeader.recId) ==
+            ownership.deleted.end()) return false;
+  }
+
   size_t source = 0;
   for (size_t i = 0; i < placement.size(); ++i) {
     if (placement[i] >= kDataBlocks) return false;
@@ -305,6 +345,7 @@ bool StorageModel::writeRecording(uint32_t recId, const std::vector<uint8_t>& au
 }
 
 bool StorageModel::appendRecord(const IndexRecord& record, size_t bits) {
+  if (!bootScanComplete_) return false;
   const ScanResult current = scan();
   if (!current.deviceSafe || current.activeBank < 0 || indexMutationFaulted_) return false;
   if (!indexCursorValid_ || indexCursorBank_ != current.activeBank) {
@@ -330,6 +371,7 @@ bool StorageModel::appendRecord(const IndexRecord& record, size_t bits) {
 
 bool StorageModel::commitRecording(uint32_t recId, const std::vector<uint8_t>& audio,
                                    const std::vector<uint32_t>& placement, size_t tornBits) {
+  if (!bootScanComplete_) return false;
   const ScanResult before = scan();
   if (!before.safe || before.activeBank < 0 || before.nextSeq >= 0xFFFFFFFEU) return false;
   IndexRecord record;
@@ -345,6 +387,7 @@ bool StorageModel::commitRecording(uint32_t recId, const std::vector<uint8_t>& a
 }
 
 bool StorageModel::deleteRecording(uint32_t recId, size_t tornBits) {
+  if (!bootScanComplete_) return false;
   const ScanResult before = scan();
   if (!before.safe || before.activeBank < 0 || before.nextSeq >= 0xFFFFFFFEU) return false;
   IndexRecord record;
@@ -356,6 +399,7 @@ bool StorageModel::deleteRecording(uint32_t recId, size_t tornBits) {
 }
 
 bool StorageModel::reclaimRecording(uint32_t recId, size_t tornBlock, size_t tornBits) {
+  if (!bootScanComplete_) return false;
   const ScanResult result = scan();
   if (std::find(result.deleted.begin(), result.deleted.end(), recId) == result.deleted.end()) return false;
   BlockScan blocks = scanBlocks(medium_);
@@ -377,6 +421,7 @@ ScanResult StorageModel::scan(bool verifyBodies) const {
   const BankScan a = scanBank(medium_, 0);
   const BankScan b = scanBank(medium_, 1);
   const BankScan* bank = nullptr;
+  result.mutationReady = bootScanComplete_;
   const pebble_format::BankChoice choice = pebble_format::chooseActiveBank(
       a.headerValid && a.ready, a.header.generation,
       b.headerValid && b.ready, b.header.generation);
@@ -390,6 +435,11 @@ ScanResult StorageModel::scan(bool verifyBodies) const {
                                 ? "both banks have the same generation"
                                 : "no ready index bank");
     const BlockScan unowned = scanBlocks(medium_);
+    result.dataBlocksScanned = unowned.blocksScanned;
+    if (!unowned.safe) {
+      result.deviceSafe = result.safe = false;
+      result.issues.push_back("data block scan did not cover all 496 blocks in order");
+    }
     result.quarantinedBlocks = unowned.quarantined;
     result.freeDataBlocks = kDataBlocks - unowned.occupied;
     result.capacityPressure = CapacityPressure::Index;
@@ -430,6 +480,12 @@ ScanResult StorageModel::scan(bool verifyBodies) const {
   }
 
   BlockScan blocks = scanBlocks(medium_);
+  result.dataBlocksScanned = blocks.blocksScanned;
+  if (!blocks.safe) {
+    result.deviceSafe = false;
+    result.safe = false;
+    result.issues.push_back("data block scan did not cover all 496 blocks in order");
+  }
   result.quarantinedBlocks = blocks.quarantined;
   result.quarantinedPhysicalBlocks = blocks.quarantinedPhysical;
   result.freeDataBlocks = kDataBlocks - blocks.occupied;
@@ -519,6 +575,7 @@ ScanResult StorageModel::scan(bool verifyBodies) const {
 }
 
 bool StorageModel::compact(CompactFault fault) {
+  if (!bootScanComplete_) return false;
   const ScanResult before = scan();
   if (!before.safe || before.activeBank < 0) return false;
   const unsigned oldBank = static_cast<unsigned>(before.activeBank);
@@ -672,6 +729,8 @@ bool VirtualFat::build(const NorMedium& medium, const ScanResult& snapshot) {
        << "FORMAT_VERSION=1\r\n"
        << "MEDIA_GEN=" << snapshot.mediaGeneration << "\r\n"
        << "DEVICE_SAFE=" << (snapshot.deviceSafe ? "YES" : "NO") << "\r\n"
+       << "MUTATION_READY=" << (snapshot.mutationReady ? "YES" : "NO") << "\r\n"
+       << "DATA_BLOCKS_SCANNED=" << snapshot.dataBlocksScanned << "/" << kDataBlocks << "\r\n"
        << "TIER_A=" << snapshot.tierA.size() << "\r\n"
        << "TIER_B=" << snapshot.tierB.size() << "\r\n"
        << "INCOMPLETE=" << snapshot.incomplete.size() << "\r\n"

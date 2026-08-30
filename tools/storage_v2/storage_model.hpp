@@ -87,6 +87,7 @@ enum class CapacityPressure { None, Data, Index };
 struct ScanResult {
   bool safe = true;
   bool deviceSafe = true;
+  bool mutationReady = false;
   int activeBank = -1;
   uint32_t generation = 0;
   uint32_t nextRecId = 1;
@@ -94,6 +95,7 @@ struct ScanResult {
   uint64_t mediaGeneration = 0;
   size_t quarantinedBlocks = 0;
   uint8_t lastOccupiedPage = 0;
+  uint16_t dataBlocksScanned = 0;
   uint8_t nextWritePage = 0xFF;
   std::vector<CatalogEntry> tierA;
   uint32_t freeDataBlocks = kDataBlocks;
@@ -126,6 +128,9 @@ class StorageModel {
   const NorMedium& medium() const { return medium_; }
   uint64_t mediaGen() const { return mediaGen_; }
   void restart();
+  void beginRestart();
+  bool completeRestartScan();
+  bool bootScanComplete() const { return bootScanComplete_; }
 
   bool format(uint32_t nextRecId = 1, uint32_t nextSeq = 1);
   bool writeRecording(uint32_t recId, const std::vector<uint8_t>& audio,
@@ -152,6 +157,7 @@ class StorageModel {
   bool indexMutationFaulted_ = false;
   int indexCursorBank_ = -1;
   uint16_t indexWritePage_ = 0;
+  bool bootScanComplete_ = false;
 
   bool program(uint32_t address, const uint8_t page[kPageBytes], size_t bits);
   bool erase(uint32_t address, size_t bits = kEraseBytes * 8U);

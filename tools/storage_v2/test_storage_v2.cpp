@@ -476,6 +476,8 @@ static void checkStatusSnapshotAndLowBatteryStop() {
   assert(status.find("INCOMPLETE=0") != std::string::npos);
   assert(status.find("BODY_MISMATCH=0") != std::string::npos);
   assert(status.find("FREE_DATA_BLOCKS=495/496") != std::string::npos);
+  assert(status.find("MUTATION_READY=YES") != std::string::npos);
+  assert(status.find("DATA_BLOCKS_SCANNED=496/496") != std::string::npos);
   assert(status.find("FREE_INDEX_PAGES=124/127") != std::string::npos);
   assert(status.find("CAPACITY_PRESSURE=INDEX") != std::string::npos);
   assert(status.find("CAPACITY_IMMINENT=NO") != std::string::npos);
@@ -517,6 +519,45 @@ static void checkStatusSnapshotAndLowBatteryStop() {
   puts("PASS low battery/status: max-two programs, no retry, unverified hidden, frozen STATUS.TXT");
 }
 
+static void checkBootMutationGateAndOwnership() {
+  StorageModel storage;
+  assert(storage.format());
+  const auto committed = pattern(300, 0x70);
+  const auto incomplete = pattern(300, 0x71);
+  writeAndCommit(&storage, 80, committed, {10});
+  assert(storage.writeRecording(81, incomplete, {11}));
+
+  storage.beginRestart();
+  assert(!storage.bootScanComplete());
+  const uint64_t programsBefore = storage.medium().programAttempts();
+  ScanResult pending = storage.scan(false);
+  assert(!pending.mutationReady && pending.dataBlocksScanned == kDataBlocks);
+  const uint64_t erasesBefore = storage.medium().eraseAttempts();
+  const std::vector<uint8_t> mediumBefore = storage.medium().bytes();
+  assert(!storage.writeRecording(82, pattern(32, 0x72), {12}));
+  assert(!storage.commitRecording(82, std::vector<uint8_t>(), std::vector<uint32_t>()));
+  assert(!storage.deleteRecording(80));
+  assert(!storage.compact());
+  assert(storage.medium().programAttempts() == programsBefore);
+  assert(storage.medium().eraseAttempts() == erasesBefore);
+  assert(storage.medium().bytes() == mediumBefore);
+
+  assert(storage.completeRestartScan());
+  assert(storage.bootScanComplete());
+  ScanResult ownership = storage.scan(false);
+  assert(ownership.dataBlocksScanned == kDataBlocks);
+  assert(ownership.committedUnverified == std::vector<uint32_t>{80});
+  assert(ownership.incomplete == std::vector<uint32_t>{81});
+
+  const uint64_t protectedPrograms = storage.medium().programAttempts();
+  const uint64_t protectedErases = storage.medium().eraseAttempts();
+  assert(!storage.writeRecording(82, pattern(32, 0x73), {10}));
+  assert(!storage.writeRecording(82, pattern(32, 0x74), {11}));
+  assert(storage.medium().programAttempts() == protectedPrograms);
+  assert(storage.medium().eraseAttempts() == protectedErases);
+  assert(storage.writeRecording(82, pattern(32, 0x75), {12}));
+  puts("PASS F7: boot gate and verified ownership prevent premature erase");
+}
 static void checkFullIndexBank() {
   StorageModel storage;
   assert(storage.format());
@@ -546,6 +587,7 @@ int main() {
   checkReservationsAndExportGate();
   checkBootFenceFreshEraseAndSafetyLayers();
   checkStatusSnapshotAndLowBatteryStop();
+  checkBootMutationGateAndOwnership();
   checkFullIndexBank();
   puts("ALL STORAGE V2 HOST TESTS PASSED (no physical device accessed)");
 }

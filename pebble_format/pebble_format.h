@@ -62,6 +62,13 @@ struct BankScanState {
   uint8_t nextExpectedPage;
 };
 
+struct DataScanState {
+  bool deviceSafe;
+  uint16_t blocksScanned;
+  uint16_t nextExpectedBlock;
+};
+
+
 struct BankChoice {
   bool deviceSafe;
   int8_t activeBank;
@@ -93,6 +100,10 @@ void beginBankScan(BankScanState* state);
 void scanBankPage(BankScanState* state, uint8_t pageIndex,
                   const uint8_t page[kPageBytes]);
 void finishBankScan(BankScanState* state);
+void beginDataScan(DataScanState* state);
+void scanDataBlock(DataScanState* state, uint16_t blockIndex);
+void finishDataScan(DataScanState* state);
+
 BankChoice chooseActiveBank(bool bank0Valid, uint32_t generation0,
                             bool bank1Valid, uint32_t generation1);
 
