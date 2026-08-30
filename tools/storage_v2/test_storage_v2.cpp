@@ -195,6 +195,7 @@ static void checkTornDataAndRecords() {
   assert(appendTorn.commitRecording(11, longAudio, {0}));
   ScanResult scan = appendTorn.scan();
   assert(scan.tierA.empty() && scan.tierB == std::vector<uint32_t>{11});
+  assert(scan.bodyMismatch == std::vector<uint32_t>{11});
 
   StorageModel commitTorn;
   assert(commitTorn.format());
@@ -203,6 +204,7 @@ static void checkTornDataAndRecords() {
   scan = commitTorn.scan();
   assert(scan.tierA.empty());
   assert(std::find(scan.tierB.begin(), scan.tierB.end(), 12) != scan.tierB.end());
+  assert(scan.incomplete == std::vector<uint32_t>{12});
 
   StorageModel deleteTorn;
   assert(deleteTorn.format());
@@ -268,6 +270,7 @@ static void checkConflictsAndCorruption() {
   bodyDamage.medium().corruptToZero(32, setBit);
   scan = bodyDamage.scan();
   assert(scan.safe && scan.tierA.empty() && scan.tierB == std::vector<uint32_t>{23});
+  assert(scan.bodyMismatch == std::vector<uint32_t>{23});
 
   StorageModel sameSeq;
   assert(sameSeq.format());
@@ -452,6 +455,9 @@ static void checkStatusSnapshotAndLowBatteryStop() {
   writeAndCommit(&storage, 60, audio, {2});
   const ScanResult frozen = storage.scan(false);
   assert(frozen.tierA.empty() && frozen.committedUnverified.size() == 1);
+  assert(frozen.freeDataBlocks == kDataBlocks - 1);
+  assert(frozen.freeIndexPages == 124);
+  assert(frozen.capacityPressure == CapacityPressure::Index);
   VirtualFat volume;
   assert(volume.build(storage.medium(), frozen));
   g_volume = &volume;
@@ -467,8 +473,29 @@ static void checkStatusSnapshotAndLowBatteryStop() {
   assert(status.find("TIER_A=0") != std::string::npos);
   assert(status.find("COMMITTED_UNVERIFIED=1") != std::string::npos);
   assert(f_close(&file) == FR_OK);
+  assert(status.find("INCOMPLETE=0") != std::string::npos);
+  assert(status.find("BODY_MISMATCH=0") != std::string::npos);
+  assert(status.find("FREE_DATA_BLOCKS=495/496") != std::string::npos);
+  assert(status.find("FREE_INDEX_PAGES=124/127") != std::string::npos);
+  assert(status.find("CAPACITY_PRESSURE=INDEX") != std::string::npos);
+  assert(status.find("CAPACITY_IMMINENT=NO") != std::string::npos);
+  assert(status.find("RAW_BACKUP_RECOMMENDED=NO") != std::string::npos);
   f_mount(nullptr, "", 0);
   g_volume = nullptr;
+
+  ScanResult alert = frozen;
+  alert.committedUnverified.clear();
+  alert.tierB.push_back(60);
+  alert.bodyMismatch.push_back(60);
+  alert.freeDataBlocks = 49;  // below the 10% warning threshold
+  alert.capacityPressure = CapacityPressure::Data;
+  VirtualFat alertVolume;
+  assert(alertVolume.build(storage.medium(), alert));
+  const std::vector<uint8_t> alertImage = alertVolume.image();
+  const std::string alertText(reinterpret_cast<const char*>(alertImage.data()), alertImage.size());
+  assert(alertText.find("BODY_MISMATCH=1") != std::string::npos);
+  assert(alertText.find("CAPACITY_IMMINENT=YES") != std::string::npos);
+  assert(alertText.find("RAW_BACKUP_RECOMMENDED=YES") != std::string::npos);
 
   LowBatteryStop normal;
   assert(normal.begin(true));

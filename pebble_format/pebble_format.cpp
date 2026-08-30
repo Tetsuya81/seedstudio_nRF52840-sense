@@ -215,15 +215,20 @@ void beginBankScan(BankScanState* state) {
   state->hasOccupiedPage = false;
   state->lastOccupied = 0;
   state->nextWritePage = 0xFF;
+  state->pagesScanned = 0;
+  state->nextExpectedPage = 1;
   state->lastValidSeq = 0;
 }
 
 void scanBankPage(BankScanState* state, uint8_t pageIndex,
                   const uint8_t page[kPageBytes]) {
-  if (!state || !page || pageIndex == 0 || pageIndex >= kPagesPerBank) {
+  if (!state || !page || pageIndex == 0 || pageIndex >= kPagesPerBank ||
+      pageIndex != state->nextExpectedPage) {
     if (state) state->deviceSafe = false;
     return;
   }
+  ++state->pagesScanned;
+  ++state->nextExpectedPage;
   if (!isErased(page, kPageBytes)) {
     state->hasOccupiedPage = true;
     if (pageIndex > state->lastOccupied) state->lastOccupied = pageIndex;
@@ -239,6 +244,11 @@ void scanBankPage(BankScanState* state, uint8_t pageIndex,
 
 void finishBankScan(BankScanState* state) {
   if (!state) return;
+  if (state->pagesScanned != kPagesPerBank - 1U) {
+    state->deviceSafe = false;
+    state->nextWritePage = 0xFF;
+    return;
+  }
   if (!state->hasOccupiedPage) {
     state->nextWritePage = 1;  // only used for diagnostics; a valid bank has READY
     return;

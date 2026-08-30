@@ -64,6 +64,7 @@ struct BlockScan {
   std::map<uint32_t, std::map<uint32_t, std::vector<uint32_t>>> byRecording;
   size_t quarantined = 0;
   std::vector<uint32_t> quarantinedPhysical;
+  uint32_t occupied = 0;
 };
 
 BlockScan scanBlocks(const NorMedium& medium) {
@@ -72,6 +73,7 @@ BlockScan scanBlocks(const NorMedium& medium) {
   for (uint32_t block = 0; block < kDataBlocks; ++block) {
     const uint32_t address = block * kEraseBytes;
     if (medium.isAllFF(address, kEraseBytes)) continue;
+    ++result.occupied;
     medium.read(address, headerBytes.data(), headerBytes.size());
     DataHeader header;
     if (!decodeDataHeaderPage(headerBytes.data(), &header)) {
@@ -371,6 +373,7 @@ bool StorageModel::reclaimRecording(uint32_t recId, size_t tornBlock, size_t tor
 
 ScanResult StorageModel::scan(bool verifyBodies) const {
   ScanResult result;
+  result.mediaGeneration = mediaGen_;
   const BankScan a = scanBank(medium_, 0);
   const BankScan b = scanBank(medium_, 1);
   const BankScan* bank = nullptr;
@@ -388,9 +391,12 @@ ScanResult StorageModel::scan(bool verifyBodies) const {
                                 : "no ready index bank");
     const BlockScan unowned = scanBlocks(medium_);
     result.quarantinedBlocks = unowned.quarantined;
+    result.freeDataBlocks = kDataBlocks - unowned.occupied;
+    result.capacityPressure = CapacityPressure::Index;
     result.quarantinedPhysicalBlocks = unowned.quarantinedPhysical;
     for (const auto& item : unowned.byRecording) {
       result.tierB.push_back(item.first);
+      result.incomplete.push_back(item.first);
       result.nextRecId = std::max(result.nextRecId, plusOneSaturated(item.first));
     }
     return result;
@@ -405,6 +411,7 @@ ScanResult StorageModel::scan(bool verifyBodies) const {
   result.generation = bank->header.generation;
   result.lastOccupiedPage = bank->lastOccupied;
   result.nextWritePage = bank->nextWritePage;
+  result.freeIndexPages = bank->nextWritePage == 0xFF ? 0 : kPagesPerBank - bank->nextWritePage;
   result.nextRecId = bank->header.nextRecIdHW;
   result.nextSeq = bank->header.nextSeqHW;
 
@@ -425,6 +432,13 @@ ScanResult StorageModel::scan(bool verifyBodies) const {
   BlockScan blocks = scanBlocks(medium_);
   result.quarantinedBlocks = blocks.quarantined;
   result.quarantinedPhysicalBlocks = blocks.quarantinedPhysical;
+  result.freeDataBlocks = kDataBlocks - blocks.occupied;
+  if (result.freeDataBlocks == 0) result.capacityPressure = CapacityPressure::Data;
+  else if (result.freeIndexPages == 0) result.capacityPressure = CapacityPressure::Index;
+  else result.capacityPressure =
+      static_cast<uint64_t>(result.freeDataBlocks) * 127U <=
+              static_cast<uint64_t>(result.freeIndexPages) * kDataBlocks
+          ? CapacityPressure::Data : CapacityPressure::Index;
   if (blocks.quarantined) {
     result.issues.push_back("data block quarantined: non-blank without valid PRB1");
   }
@@ -480,7 +494,10 @@ ScanResult StorageModel::scan(bool verifyBodies) const {
       const bool bodyValid = readPayload(medium_, entry.physicalBlocks, entry.byteLen, &payload) &&
           crc32(payload.data(), payload.size()) == entry.bodyCrc32;
       if (bodyValid) result.tierA.push_back(entry);
-      else result.tierB.push_back(item.first);
+      else {
+        result.tierB.push_back(item.first);
+        result.bodyMismatch.push_back(item.first);
+      }
     }
   }
   for (const auto& item : deletes)
@@ -489,10 +506,15 @@ ScanResult StorageModel::scan(bool verifyBodies) const {
     if (commits.find(item.first) == commits.end() &&
         deletes.find(item.first) == deletes.end() &&
         std::find(result.tierB.begin(), result.tierB.end(), item.first) == result.tierB.end())
-      result.tierB.push_back(item.first);  // valid data header but no COMMIT
+      {
+        result.tierB.push_back(item.first);  // valid data header but no COMMIT
+        result.incomplete.push_back(item.first);
+      }
   }
   std::sort(result.tierB.begin(), result.tierB.end());
   std::sort(result.deleted.begin(), result.deleted.end());
+  std::sort(result.incomplete.begin(), result.incomplete.end());
+  std::sort(result.bodyMismatch.begin(), result.bodyMismatch.end());
   return result;
 }
 
@@ -640,17 +662,30 @@ bool VirtualFat::build(const NorMedium& medium, const std::vector<CatalogEntry>&
 
 bool VirtualFat::build(const NorMedium& medium, const ScanResult& snapshot) {
   if (!build(medium, snapshot.tierA)) return false;
+  const bool capacityImminent =
+      static_cast<uint64_t>(snapshot.freeDataBlocks) * 10U <= kDataBlocks ||
+      static_cast<uint64_t>(snapshot.freeIndexPages) * 10U <= 127U;
+  const char* pressure = snapshot.capacityPressure == CapacityPressure::Data ? "DATA" :
+      snapshot.capacityPressure == CapacityPressure::Index ? "INDEX" : "NONE";
   std::ostringstream text;
   text << "PEBBLERING STORAGE STATUS\r\n"
+       << "FORMAT_VERSION=1\r\n"
+       << "MEDIA_GEN=" << snapshot.mediaGeneration << "\r\n"
        << "DEVICE_SAFE=" << (snapshot.deviceSafe ? "YES" : "NO") << "\r\n"
        << "TIER_A=" << snapshot.tierA.size() << "\r\n"
        << "TIER_B=" << snapshot.tierB.size() << "\r\n"
+       << "INCOMPLETE=" << snapshot.incomplete.size() << "\r\n"
+       << "BODY_MISMATCH=" << snapshot.bodyMismatch.size() << "\r\n"
        << "COMMITTED_UNVERIFIED=" << snapshot.committedUnverified.size() << "\r\n"
        << "RECORD_ISOLATED=" << snapshot.isolated.size() << "\r\n"
        << "BLOCK_QUARANTINED=" << snapshot.quarantinedBlocks << "\r\n"
+       << "FREE_DATA_BLOCKS=" << snapshot.freeDataBlocks << "/" << kDataBlocks << "\r\n"
+       << "FREE_INDEX_PAGES=" << snapshot.freeIndexPages << "/127\r\n"
+       << "CAPACITY_PRESSURE=" << pressure << "\r\n"
+       << "CAPACITY_IMMINENT=" << (capacityImminent ? "YES" : "NO") << "\r\n"
        << "RAW_BACKUP_RECOMMENDED="
-       << ((!snapshot.deviceSafe || !snapshot.tierB.empty() || snapshot.quarantinedBlocks)
-               ? "YES" : "NO") << "\r\n";
+       << ((!snapshot.deviceSafe || !snapshot.tierB.empty() || snapshot.quarantinedBlocks ||
+            !snapshot.bodyMismatch.empty() || capacityImminent) ? "YES" : "NO") << "\r\n";
   status_ = text.str();
   uint16_t nextCluster = 2;
   for (const File& file : files_)

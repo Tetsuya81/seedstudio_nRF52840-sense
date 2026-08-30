@@ -58,6 +58,8 @@ struct BankScanState {
   uint8_t lastOccupied;
   uint8_t nextWritePage;
   uint32_t lastValidSeq;
+  uint8_t pagesScanned;
+  uint8_t nextExpectedPage;
 };
 
 struct BankChoice {

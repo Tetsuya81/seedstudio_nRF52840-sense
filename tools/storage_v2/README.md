@@ -18,6 +18,13 @@ The suite covers:
   high-water marks, and interrupted compaction
 - a synthesized read-only FAT12 volume exposing only Tier A recordings while
   removing each physical 32-byte PRB1 header
+- shared freestanding format scanning with a runtime assertion that all index
+  pages 1..127 were visited exactly once and in order
+- reboot fencing, fresh-erase allocation, and device/record/block isolation
+- deferred full-body verification and a frozen diagnostic `STATUS.TXT` with
+  capacity pressure, incomplete/body-mismatch counts, and backup advice
+- a low-battery stop model allowing at most two page programs without retry
+- firmware caller obligations and G1/G2 acceptance tests tracked in `docs/storage-v2-firmware-obligations.md`
 - FatFs mount/read of the synthesized image, 8.3 names, fragmented physical
   placement, full capacity, and arbitrary reads across 4064-byte seams
 - exclusive audio/raw export gates and COMMIT-page reservation invariants

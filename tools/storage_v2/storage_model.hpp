@@ -82,6 +82,8 @@ struct CatalogEntry {
   std::vector<uint32_t> physicalBlocks;
 };
 
+enum class CapacityPressure { None, Data, Index };
+
 struct ScanResult {
   bool safe = true;
   bool deviceSafe = true;
@@ -89,13 +91,19 @@ struct ScanResult {
   uint32_t generation = 0;
   uint32_t nextRecId = 1;
   uint32_t nextSeq = 1;
+  uint64_t mediaGeneration = 0;
   size_t quarantinedBlocks = 0;
   uint8_t lastOccupiedPage = 0;
   uint8_t nextWritePage = 0xFF;
   std::vector<CatalogEntry> tierA;
+  uint32_t freeDataBlocks = kDataBlocks;
+  uint32_t freeIndexPages = 0;
+  CapacityPressure capacityPressure = CapacityPressure::None;
   std::vector<uint32_t> tierB;
   std::vector<uint32_t> committedUnverified;
   std::vector<uint32_t> isolated;
+  std::vector<uint32_t> incomplete;
+  std::vector<uint32_t> bodyMismatch;
   std::vector<uint32_t> quarantinedPhysicalBlocks;
   std::vector<uint32_t> deleted;
   std::vector<std::string> issues;

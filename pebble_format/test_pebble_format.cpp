@@ -70,14 +70,29 @@ static void bankScanAndFence() {
   finishBankScan(&scan);
   assert(scan.deviceSafe && scan.ready && scan.lastOccupied == 3 && scan.nextWritePage == 5);
 
+  // A shortened scan cannot silently produce a writable bank.
+  beginBankScan(&scan);
+  for (uint8_t p = 1; p < kPagesPerBank - 1; ++p) scanBankPage(&scan, p, blank);
+  finishBankScan(&scan);
+  assert(!scan.deviceSafe && scan.pagesScanned == 126 && scan.nextWritePage == 0xFF);
+
   // Physical order, not adjacency, controls seq monotonicity.
   beginBankScan(&scan);
-  record.seq = 5;
-  assert(encodeIndexRecord(record, page));
-  scanBankPage(&scan, 5, page);
-  record.seq = 4;
-  assert(encodeIndexRecord(record, page));
-  scanBankPage(&scan, 9, page);
+  for (uint8_t p = 1; p < kPagesPerBank; ++p) {
+    if (p == 5 || p == 9) {
+      record.seq = p == 5 ? 5 : 4;
+      assert(encodeIndexRecord(record, page));
+      scanBankPage(&scan, p, page);
+    } else {
+      scanBankPage(&scan, p, blank);
+    }
+  }
+  finishBankScan(&scan);
+  assert(!scan.deviceSafe && scan.pagesScanned == 127);
+
+  // Duplicate/skipped page indices also violate the scan contract.
+  beginBankScan(&scan);
+  scanBankPage(&scan, 2, blank);
   finishBankScan(&scan);
   assert(!scan.deviceSafe);
 }
