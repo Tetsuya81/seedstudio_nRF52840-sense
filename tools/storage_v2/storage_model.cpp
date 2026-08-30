@@ -16,31 +16,8 @@ void put16(uint8_t* p, uint16_t v) {
 void put32(uint8_t* p, uint32_t v) {
   for (unsigned i = 0; i < 4; ++i) p[i] = static_cast<uint8_t>(v >> (8 * i));
 }
-void put64(uint8_t* p, uint64_t v) {
-  for (unsigned i = 0; i < 8; ++i) p[i] = static_cast<uint8_t>(v >> (8 * i));
-}
-uint16_t get16(const uint8_t* p) {
-  return static_cast<uint16_t>(p[0] | (static_cast<uint16_t>(p[1]) << 8));
-}
-uint32_t get32(const uint8_t* p) {
-  uint32_t v = 0;
-  for (unsigned i = 0; i < 4; ++i) v |= static_cast<uint32_t>(p[i]) << (8 * i);
-  return v;
-}
-uint64_t get64(const uint8_t* p) {
-  uint64_t v = 0;
-  for (unsigned i = 0; i < 8; ++i) v |= static_cast<uint64_t>(p[i]) << (8 * i);
-  return v;
-}
-bool magic(const uint8_t* p, const char text[5]) {
-  return std::memcmp(p, text, 4) == 0;
-}
 uint32_t bankAddress(unsigned bank) {
   return kIndexBase + bank * kIndexBankBytes;
-}
-bool allFF(const uint8_t* p, size_t n) {
-  for (size_t i = 0; i < n; ++i) if (p[i] != 0xFF) return false;
-  return true;
 }
 uint32_t plusOneSaturated(uint32_t value) {
   return value >= 0xFFFFFFFEU ? 0xFFFFFFFEU : value + 1U;
@@ -50,6 +27,8 @@ struct BankScan {
   bool headerValid = false;
   bool ready = false;
   bool safe = true;
+  uint8_t lastOccupied = 0;
+  uint8_t nextWritePage = 0xFF;
   BankHeader header;
   std::vector<IndexRecord> records;
   std::vector<std::string> issues;
@@ -59,41 +38,32 @@ BankScan scanBank(const NorMedium& medium, unsigned bank) {
   BankScan result;
   std::array<uint8_t, kPageBytes> page{};
   medium.read(bankAddress(bank), page.data(), page.size());
-  result.headerValid = decodeBankHeader(page.data(), bank, &result.header);
+  result.headerValid = decodeBankHeaderPage(page.data(), bank, &result.header);
   if (!result.headerValid) return result;
 
-  bool sawBlank = false;
-  std::map<uint32_t, std::array<uint8_t, kPageBytes>> seqPages;
+  pebble_format::BankScanState state;
+  pebble_format::beginBankScan(&state);
   for (uint32_t p = 1; p < kPagesPerBank; ++p) {
     medium.read(bankAddress(bank) + p * kPageBytes, page.data(), page.size());
-    if (allFF(page.data(), page.size())) {
-      sawBlank = true;
-      continue;
-    }
+    pebble_format::scanBankPage(&state, static_cast<uint8_t>(p), page.data());
     IndexRecord record;
-    if (!decodeIndexRecord(page.data(), &record)) continue;  // occupied torn page
-    if (sawBlank) {
-      result.safe = false;
-      result.issues.push_back("valid record after blank index page");
-    }
-    auto found = seqPages.find(record.seq);
-    if (found != seqPages.end() && found->second != page) {
-      result.safe = false;
-      result.issues.push_back("same seq has different records");
-    } else {
-      seqPages[record.seq] = page;
-    }
-    if (record.type == RecordType::Ready) result.ready = true;
+    if (!decodeIndexRecordPage(page.data(), &record)) continue;  // occupied torn page
     result.records.push_back(record);
   }
-  std::sort(result.records.begin(), result.records.end(),
-            [](const IndexRecord& a, const IndexRecord& b) { return a.seq < b.seq; });
+  pebble_format::finishBankScan(&state);
+  result.safe = state.deviceSafe;
+  result.ready = state.ready;
+  result.lastOccupied = state.lastOccupied;
+  result.nextWritePage = state.nextWritePage;
+  if (!result.safe)
+    result.issues.push_back("valid index seq is not strictly increasing in physical order");
   return result;
 }
 
 struct BlockScan {
   std::map<uint32_t, std::map<uint32_t, std::vector<uint32_t>>> byRecording;
   size_t quarantined = 0;
+  std::vector<uint32_t> quarantinedPhysical;
 };
 
 BlockScan scanBlocks(const NorMedium& medium) {
@@ -104,8 +74,9 @@ BlockScan scanBlocks(const NorMedium& medium) {
     if (medium.isAllFF(address, kEraseBytes)) continue;
     medium.read(address, headerBytes.data(), headerBytes.size());
     DataHeader header;
-    if (!decodeDataHeader(headerBytes.data(), &header)) {
+    if (!decodeDataHeaderPage(headerBytes.data(), &header)) {
       ++result.quarantined;
+      result.quarantinedPhysical.push_back(block);
       continue;
     }
     result.byRecording[header.recId][header.blockIndex].push_back(block);
@@ -156,13 +127,7 @@ uint16_t fatTime(uint64_t time) {
 }  // namespace
 
 uint32_t crc32(const uint8_t* data, size_t size) {
-  uint32_t crc = 0xFFFFFFFFU;
-  for (size_t i = 0; i < size; ++i) {
-    crc ^= data[i];
-    for (unsigned bit = 0; bit < 8; ++bit)
-      crc = (crc >> 1) ^ ((crc & 1U) ? 0xEDB88320U : 0U);
-  }
-  return crc ^ 0xFFFFFFFFU;
+  return pebble_format::crc32(data, size);
 }
 
 NorMedium::NorMedium()
@@ -180,10 +145,11 @@ bool NorMedium::read(uint32_t address, uint8_t* out, size_t size) const {
 
 bool NorMedium::isAllFF(uint32_t address, size_t size) const {
   return address <= bytes_.size() && size <= bytes_.size() - address &&
-         allFF(bytes_.data() + address, size);
+         pebble_format::isErased(bytes_.data() + address, size);
 }
 
 bool NorMedium::programPage(uint32_t address, const uint8_t page[kPageBytes], size_t cutBits) {
+  ++programAttempts_;
   if (!page || address % kPageBytes != 0 || address > kMediumBytes - kPageBytes) return false;
   const uint32_t pageNumber = address / kPageBytes;
   if (consumedPages_[pageNumber]) return false;
@@ -198,6 +164,7 @@ bool NorMedium::programPage(uint32_t address, const uint8_t page[kPageBytes], si
 }
 
 bool NorMedium::eraseBlock(uint32_t address, size_t cutBits) {
+  ++eraseAttempts_;
   if (address % kEraseBytes != 0 || address > kMediumBytes - kEraseBytes) return false;
   const size_t bits = std::min<size_t>(cutBits, kEraseBytes * 8U);
   for (size_t bit = 0; bit < bits; ++bit)
@@ -216,111 +183,51 @@ void NorMedium::corruptToZero(uint32_t address, uint8_t mask) {
   if (address < bytes_.size()) bytes_[address] &= static_cast<uint8_t>(~mask);
 }
 
-std::array<uint8_t, 32> encodeDataHeader(const DataHeader& h) {
-  std::array<uint8_t, 32> out;
-  out.fill(0xFF);
-  std::memcpy(out.data(), "PRB1", 4);
-  put16(out.data() + 4, h.version);
-  put16(out.data() + 6, h.flags);
-  put32(out.data() + 8, h.recId);
-  put32(out.data() + 12, h.blockIndex);
-  put64(out.data() + 16, h.startTime);
-  put32(out.data() + 24, 0xFFFFFFFFU);
-  put32(out.data() + 28, crc32(out.data(), 28));
+std::array<uint8_t, 32> encodeDataHeaderPage(const DataHeader& h) {
+  std::array<uint8_t, 32> out{};
+  if (!pebble_format::encodeDataHeader(h, out.data())) out.fill(0);
   return out;
 }
 
-bool decodeDataHeader(const uint8_t* p, DataHeader* h) {
-  if (!p || !h || !magic(p, "PRB1") || get16(p + 4) != 1 || get16(p + 6) != 0 ||
-      get32(p + 24) != 0xFFFFFFFFU || get32(p + 28) != crc32(p, 28)) return false;
-  h->version = get16(p + 4);
-  h->flags = get16(p + 6);
-  h->recId = get32(p + 8);
-  h->blockIndex = get32(p + 12);
-  h->startTime = get64(p + 16);
-  return true;
+bool decodeDataHeaderPage(const uint8_t* p, DataHeader* h) {
+  return pebble_format::decodeDataHeader(p, h);
 }
 
-std::array<uint8_t, kPageBytes> encodeBankHeader(const BankHeader& h) {
-  std::array<uint8_t, kPageBytes> out;
-  out.fill(0xFF);
-  std::memcpy(out.data(), "PRBH", 4);
-  put16(out.data() + 4, h.version);
-  put16(out.data() + 6, h.bankId);
-  put32(out.data() + 8, h.generation);
-  put32(out.data() + 12, h.firstSeq);
-  put32(out.data() + 16, h.nextRecIdHW);
-  put32(out.data() + 20, h.nextSeqHW);
-  put64(out.data() + 24, h.createdTime);
-  put32(out.data() + 252, crc32(out.data(), 252));
+std::array<uint8_t, kPageBytes> encodeBankHeaderPage(const BankHeader& h) {
+  std::array<uint8_t, kPageBytes> out{};
+  if (!pebble_format::encodeBankHeader(h, out.data())) out.fill(0);
   return out;
 }
 
-bool decodeBankHeader(const uint8_t* p, uint16_t physicalBank, BankHeader* h) {
-  if (!p || !h || !magic(p, "PRBH") || get16(p + 4) != 1 ||
-      get16(p + 6) != physicalBank || !allFF(p + 32, 220) ||
-      get32(p + 252) != crc32(p, 252)) return false;
-  h->version = get16(p + 4);
-  h->bankId = get16(p + 6);
-  h->generation = get32(p + 8);
-  h->firstSeq = get32(p + 12);
-  h->nextRecIdHW = get32(p + 16);
-  h->nextSeqHW = get32(p + 20);
-  h->createdTime = get64(p + 24);
-  return true;
+bool decodeBankHeaderPage(const uint8_t* p, uint16_t physicalBank, BankHeader* h) {
+  return pebble_format::decodeBankHeader(p, physicalBank, h);
 }
 
-std::array<uint8_t, kPageBytes> encodeIndexRecord(const IndexRecord& r) {
-  std::array<uint8_t, kPageBytes> out;
-  out.fill(0xFF);
-  std::memcpy(out.data(), "PRR1", 4);
-  out[4] = static_cast<uint8_t>(r.type);
-  out[5] = r.version;
-  put32(out.data() + 6, r.seq);
-  put32(out.data() + 10, r.recId);
-  put32(out.data() + 14, r.byteLen);
-  put32(out.data() + 18, r.bodyCrc32);
-  put32(out.data() + 22, r.blockCount);
-  put32(out.data() + 26, r.firstCluster);
-  put64(out.data() + 30, r.time);
-  put32(out.data() + 38, r.nextRecIdHW);
-  put32(out.data() + 42, r.nextSeqHW);
-  put32(out.data() + 252, crc32(out.data(), 252));
+std::array<uint8_t, kPageBytes> encodeIndexRecordPage(const IndexRecord& r) {
+  std::array<uint8_t, kPageBytes> out{};
+  if (!pebble_format::encodeIndexRecord(r, out.data())) out.fill(0);
   return out;
 }
 
-bool decodeIndexRecord(const uint8_t* p, IndexRecord* r) {
-  if (!p || !r || !magic(p, "PRR1") || p[5] != 1 ||
-      p[4] < 1 || p[4] > 3 || !allFF(p + 46, 206) ||
-      get32(p + 252) != crc32(p, 252)) return false;
-  r->type = static_cast<RecordType>(p[4]);
-  r->version = p[5];
-  r->seq = get32(p + 6);
-  r->recId = get32(p + 10);
-  r->byteLen = get32(p + 14);
-  r->bodyCrc32 = get32(p + 18);
-  r->blockCount = get32(p + 22);
-  r->firstCluster = get32(p + 26);
-  r->time = get64(p + 30);
-  r->nextRecIdHW = get32(p + 38);
-  r->nextSeqHW = get32(p + 42);
-  if (r->type == RecordType::Ready) {
-    if (r->recId != UINT32_MAX || r->byteLen != UINT32_MAX ||
-        r->bodyCrc32 != UINT32_MAX || r->blockCount != UINT32_MAX ||
-        r->firstCluster != UINT32_MAX || r->nextRecIdHW == UINT32_MAX ||
-        r->nextSeqHW == UINT32_MAX) return false;
-  } else if (r->recId == UINT32_MAX || r->nextRecIdHW != UINT32_MAX ||
-             r->nextSeqHW != UINT32_MAX) {
-    return false;
-  } else if (r->type == RecordType::Delete &&
-             (r->byteLen != UINT32_MAX || r->bodyCrc32 != UINT32_MAX ||
-              r->blockCount != UINT32_MAX || r->firstCluster != UINT32_MAX)) {
-    return false;
-  }
-  return true;
+bool decodeIndexRecordPage(const uint8_t* p, IndexRecord* r) {
+  return pebble_format::decodeIndexRecord(p, r);
 }
 
 StorageModel::StorageModel() = default;
+
+void StorageModel::restart() {
+  ++bootEpoch_;
+  indexCursorValid_ = false;
+  indexMutationFaulted_ = false;
+  indexCursorBank_ = -1;
+  indexWritePage_ = 0;
+  const ScanResult boot = scan();
+  if (boot.deviceSafe && boot.activeBank >= 0) {
+    indexCursorValid_ = true;
+    indexCursorBank_ = boot.activeBank;
+    indexWritePage_ = boot.nextWritePage;
+  }
+}
 
 bool StorageModel::program(uint32_t address, const uint8_t page[kPageBytes], size_t bits) {
   const bool ok = medium_.programPage(address, page, bits);
@@ -335,13 +242,17 @@ bool StorageModel::erase(uint32_t address, size_t bits) {
 }
 
 bool StorageModel::format(uint32_t nextRecId, uint32_t nextSeq) {
+  for (uint32_t off = 0; off < kIndexBankBytes; off += kEraseBytes) {
+    if (!erase(bankAddress(0) + off) ||
+        !medium_.isAllFF(bankAddress(0) + off, kEraseBytes)) return false;
+  }
   BankHeader header;
   header.bankId = 0;
   header.generation = 1;
   header.firstSeq = nextSeq;
   header.nextRecIdHW = nextRecId;
   header.nextSeqHW = plusOneSaturated(nextSeq);
-  const auto headerPage = encodeBankHeader(header);
+  const auto headerPage = encodeBankHeaderPage(header);
   if (!program(bankAddress(0), headerPage.data(), kPageBytes * 8U)) return false;
 
   IndexRecord ready;
@@ -349,8 +260,13 @@ bool StorageModel::format(uint32_t nextRecId, uint32_t nextSeq) {
   ready.seq = nextSeq;
   ready.nextRecIdHW = nextRecId;
   ready.nextSeqHW = plusOneSaturated(nextSeq);
-  const auto readyPage = encodeIndexRecord(ready);
-  return program(bankAddress(0) + kPageBytes, readyPage.data(), kPageBytes * 8U);
+  const auto readyPage = encodeIndexRecordPage(ready);
+  if (!program(bankAddress(0) + kPageBytes, readyPage.data(), kPageBytes * 8U)) return false;
+  indexCursorValid_ = true;
+  indexMutationFaulted_ = false;
+  indexCursorBank_ = 0;
+  indexWritePage_ = 2;
+  return true;
 }
 
 bool StorageModel::writeRecording(uint32_t recId, const std::vector<uint8_t>& audio,
@@ -360,15 +276,16 @@ bool StorageModel::writeRecording(uint32_t recId, const std::vector<uint8_t>& au
   if (needed != placement.size()) return false;
   size_t source = 0;
   for (size_t i = 0; i < placement.size(); ++i) {
-    if (placement[i] >= kDataBlocks || !medium_.isAllFF(placement[i] * kEraseBytes, kEraseBytes))
-      return false;
+    if (placement[i] >= kDataBlocks) return false;
+    const uint32_t blockAddress = placement[i] * kEraseBytes;
+    if (!erase(blockAddress) || !medium_.isAllFF(blockAddress, kEraseBytes)) return false;
     std::array<uint8_t, kEraseBytes> block;
     block.fill(0xFF);
     DataHeader header;
     header.recId = recId;
     header.blockIndex = static_cast<uint32_t>(i);
     header.startTime = i == 0 ? 1 : UINT64_MAX;
-    const auto encoded = encodeDataHeader(header);
+    const auto encoded = encodeDataHeaderPage(header);
     std::copy(encoded.begin(), encoded.end(), block.begin());
     const size_t take = std::min<size_t>(kPayloadBytes, audio.size() - source);
     std::copy(audio.begin() + source, audio.begin() + source + take, block.begin() + 32);
@@ -387,17 +304,26 @@ bool StorageModel::writeRecording(uint32_t recId, const std::vector<uint8_t>& au
 
 bool StorageModel::appendRecord(const IndexRecord& record, size_t bits) {
   const ScanResult current = scan();
-  if (current.activeBank < 0) return false;
-  const uint32_t base = bankAddress(static_cast<unsigned>(current.activeBank));
-  for (uint32_t page = 1; page < kPagesPerBank; ++page) {
-    const uint32_t address = base + page * kPageBytes;
-    if (medium_.isAllFF(address, kPageBytes) &&
-        !medium_.pageConsumed(address / kPageBytes)) {
-      const auto encoded = encodeIndexRecord(record);
-      return program(address, encoded.data(), bits);
-    }
+  if (!current.deviceSafe || current.activeBank < 0 || indexMutationFaulted_) return false;
+  if (!indexCursorValid_ || indexCursorBank_ != current.activeBank) {
+    indexCursorValid_ = true;
+    indexCursorBank_ = current.activeBank;
+    indexWritePage_ = current.nextWritePage;
   }
-  return false;
+  if (indexWritePage_ >= kPagesPerBank) return false;
+  const uint32_t address = bankAddress(static_cast<unsigned>(indexCursorBank_)) +
+                           indexWritePage_ * kPageBytes;
+  if (!medium_.isAllFF(address, kPageBytes) || medium_.pageConsumed(address / kPageBytes)) {
+    indexMutationFaulted_ = true;
+    return false;
+  }
+  const auto encoded = encodeIndexRecordPage(record);
+  ++indexWritePage_;  // a page-program target is never reused in this boot
+  if (!program(address, encoded.data(), bits)) {
+    indexMutationFaulted_ = true;
+    return false;
+  }
+  return true;
 }
 
 bool StorageModel::commitRecording(uint32_t recId, const std::vector<uint8_t>& audio,
@@ -443,33 +369,42 @@ bool StorageModel::reclaimRecording(uint32_t recId, size_t tornBlock, size_t tor
   return true;
 }
 
-ScanResult StorageModel::scan() const {
+ScanResult StorageModel::scan(bool verifyBodies) const {
   ScanResult result;
   const BankScan a = scanBank(medium_, 0);
   const BankScan b = scanBank(medium_, 1);
   const BankScan* bank = nullptr;
-  if (a.headerValid && a.ready && b.headerValid && b.ready) {
-    if (a.header.generation == b.header.generation) {
-      result.safe = false;
-      result.issues.push_back("both banks have the same generation");
-      return result;
+  const pebble_format::BankChoice choice = pebble_format::chooseActiveBank(
+      a.headerValid && a.ready, a.header.generation,
+      b.headerValid && b.ready, b.header.generation);
+  result.deviceSafe = choice.deviceSafe;
+  result.safe = result.deviceSafe;
+  result.activeBank = choice.activeBank;
+  if (choice.activeBank == 0) bank = &a;
+  if (choice.activeBank == 1) bank = &b;
+  if (!bank) {
+    result.issues.push_back((a.headerValid && a.ready && b.headerValid && b.ready)
+                                ? "both banks have the same generation"
+                                : "no ready index bank");
+    const BlockScan unowned = scanBlocks(medium_);
+    result.quarantinedBlocks = unowned.quarantined;
+    result.quarantinedPhysicalBlocks = unowned.quarantinedPhysical;
+    for (const auto& item : unowned.byRecording) {
+      result.tierB.push_back(item.first);
+      result.nextRecId = std::max(result.nextRecId, plusOneSaturated(item.first));
     }
-    bank = a.header.generation > b.header.generation ? &a : &b;
-    result.activeBank = bank == &a ? 0 : 1;
-  } else if (a.headerValid && a.ready) {
-    bank = &a;
-    result.activeBank = 0;
-  } else if (b.headerValid && b.ready) {
-    bank = &b;
-    result.activeBank = 1;
-  } else {
-    result.safe = false;
-    result.issues.push_back("no ready index bank");
     return result;
   }
-  result.safe = bank->safe;
+  result.deviceSafe = result.deviceSafe && bank->safe;
+  if (indexMutationFaulted_) {
+    result.deviceSafe = false;
+    result.issues.push_back("index target was not erased or a page program failed in this boot");
+  }
+  result.safe = result.deviceSafe;
   result.issues.insert(result.issues.end(), bank->issues.begin(), bank->issues.end());
   result.generation = bank->header.generation;
+  result.lastOccupiedPage = bank->lastOccupied;
+  result.nextWritePage = bank->nextWritePage;
   result.nextRecId = bank->header.nextRecIdHW;
   result.nextSeq = bank->header.nextSeqHW;
 
@@ -489,9 +424,9 @@ ScanResult StorageModel::scan() const {
 
   BlockScan blocks = scanBlocks(medium_);
   result.quarantinedBlocks = blocks.quarantined;
+  result.quarantinedPhysicalBlocks = blocks.quarantinedPhysical;
   if (blocks.quarantined) {
-    result.safe = false;
-    result.issues.push_back("non-blank data block has no valid PRB1 header");
+    result.issues.push_back("data block quarantined: non-blank without valid PRB1");
   }
   for (const auto& recording : blocks.byRecording)
     result.nextRecId = std::max(result.nextRecId, plusOneSaturated(recording.first));
@@ -533,15 +468,20 @@ ScanResult StorageModel::scan() const {
         structurallyValid = false;
     }
     std::vector<uint8_t> payload;
-    const bool bodyValid = structurallyValid &&
-        readPayload(medium_, entry.physicalBlocks, entry.byteLen, &payload) &&
-        crc32(payload.data(), payload.size()) == entry.bodyCrc32;
     if (!structurallyValid) {
-      result.safe = false;
       result.issues.push_back("recording structure conflicts with COMMIT");
+      result.isolated.push_back(item.first);
     }
-    if (bodyValid) result.tierA.push_back(entry);
-    else result.tierB.push_back(item.first);
+    if (!structurallyValid) {
+      result.tierB.push_back(item.first);
+    } else if (!verifyBodies) {
+      result.committedUnverified.push_back(item.first);
+    } else {
+      const bool bodyValid = readPayload(medium_, entry.physicalBlocks, entry.byteLen, &payload) &&
+          crc32(payload.data(), payload.size()) == entry.bodyCrc32;
+      if (bodyValid) result.tierA.push_back(entry);
+      else result.tierB.push_back(item.first);
+    }
   }
   for (const auto& item : deletes)
     if (commits.find(item.first) == commits.end()) result.deleted.push_back(item.first);
@@ -583,10 +523,9 @@ bool StorageModel::compact(CompactFault fault) {
             [](const IndexRecord& x, const IndexRecord& y) { return x.seq < y.seq; });
   if (carry.size() > 126) return false;
 
-  if (!medium_.isAllFF(bankAddress(newBank), kIndexBankBytes)) {
-    for (uint32_t off = 0; off < kIndexBankBytes; off += kEraseBytes)
-      if (!erase(bankAddress(newBank) + off)) return false;
-  }
+  for (uint32_t off = 0; off < kIndexBankBytes; off += kEraseBytes)
+    if (!erase(bankAddress(newBank) + off) ||
+        !medium_.isAllFF(bankAddress(newBank) + off, kEraseBytes)) return false;
 
   const uint32_t readySeq = before.nextSeq;
   const uint32_t nextSeq = plusOneSaturated(readySeq);
@@ -596,13 +535,13 @@ bool StorageModel::compact(CompactFault fault) {
   header.firstSeq = carry.empty() ? readySeq : carry.front().seq;
   header.nextRecIdHW = before.nextRecId;
   header.nextSeqHW = nextSeq;
-  auto page = encodeBankHeader(header);
+  auto page = encodeBankHeaderPage(header);
   if (!program(bankAddress(newBank), page.data(),
                fault == CompactFault::TornHeader ? 713 : kPageBytes * 8U)) return false;
 
   uint32_t pageNumber = 1;
   for (const auto& r : carry) {
-    page = encodeIndexRecord(r);
+    page = encodeIndexRecordPage(r);
     const bool tear = fault == CompactFault::TornCarry && pageNumber == 1;
     if (!program(bankAddress(newBank) + pageNumber * kPageBytes, page.data(),
                  tear ? 811 : kPageBytes * 8U)) return false;
@@ -613,9 +552,13 @@ bool StorageModel::compact(CompactFault fault) {
   ready.seq = readySeq;
   ready.nextRecIdHW = before.nextRecId;
   ready.nextSeqHW = nextSeq;
-  page = encodeIndexRecord(ready);
+  page = encodeIndexRecordPage(ready);
   if (!program(bankAddress(newBank) + pageNumber * kPageBytes, page.data(),
                fault == CompactFault::TornReady ? 997 : kPageBytes * 8U)) return false;
+  indexCursorValid_ = true;
+  indexMutationFaulted_ = false;
+  indexCursorBank_ = static_cast<int>(newBank);
+  indexWritePage_ = static_cast<uint16_t>(pageNumber + 1U);
   if (fault == CompactFault::StopAfterReady) return true;
 
   for (uint32_t off = 0; off < kIndexBankBytes; off += kEraseBytes) {
@@ -631,6 +574,9 @@ bool VirtualFat::build(const NorMedium& medium, const std::vector<CatalogEntry>&
   boot_.fill(0);
   fat_.fill(0);
   root_.fill(0);
+  status_.clear();
+  statusFirstCluster_ = 0;
+  statusClusterCount_ = 0;
 
   boot_[0] = 0xEB; boot_[1] = 0x3C; boot_[2] = 0x90;
   std::memcpy(boot_.data() + 3, "PBLRING1", 8);
@@ -692,6 +638,38 @@ bool VirtualFat::build(const NorMedium& medium, const std::vector<CatalogEntry>&
   return true;
 }
 
+bool VirtualFat::build(const NorMedium& medium, const ScanResult& snapshot) {
+  if (!build(medium, snapshot.tierA)) return false;
+  std::ostringstream text;
+  text << "PEBBLERING STORAGE STATUS\r\n"
+       << "DEVICE_SAFE=" << (snapshot.deviceSafe ? "YES" : "NO") << "\r\n"
+       << "TIER_A=" << snapshot.tierA.size() << "\r\n"
+       << "TIER_B=" << snapshot.tierB.size() << "\r\n"
+       << "COMMITTED_UNVERIFIED=" << snapshot.committedUnverified.size() << "\r\n"
+       << "RECORD_ISOLATED=" << snapshot.isolated.size() << "\r\n"
+       << "BLOCK_QUARANTINED=" << snapshot.quarantinedBlocks << "\r\n"
+       << "RAW_BACKUP_RECOMMENDED="
+       << ((!snapshot.deviceSafe || !snapshot.tierB.empty() || snapshot.quarantinedBlocks)
+               ? "YES" : "NO") << "\r\n";
+  status_ = text.str();
+  uint16_t nextCluster = 2;
+  for (const File& file : files_)
+    nextCluster = std::max<uint16_t>(nextCluster,
+        static_cast<uint16_t>(file.firstCluster + file.clusterCount));
+  statusClusterCount_ = static_cast<uint16_t>((status_.size() + 4095U) / 4096U);
+  statusFirstCluster_ = statusClusterCount_ ? nextCluster : 0;
+  if (nextCluster + statusClusterCount_ > 498 || files_.size() + 1 >= 512) return false;
+  for (uint16_t i = 0; i < statusClusterCount_; ++i)
+    setFat12(&fat_, nextCluster + i,
+             i + 1 == statusClusterCount_ ? 0xFFF : static_cast<uint16_t>(nextCluster + i + 1));
+  uint8_t* dir = root_.data() + (files_.size() + 1U) * 32U;
+  std::memcpy(dir, "STATUS  TXT", 11);
+  dir[11] = 0x01;
+  put16(dir + 26, statusFirstCluster_);
+  put32(dir + 28, static_cast<uint32_t>(status_.size()));
+  return true;
+}
+
 bool VirtualFat::readFileByte(const File& file, uint32_t offset, uint8_t* value) const {
   if (!medium_ || !value || offset >= file.entry.byteLen) return false;
   const uint32_t blockIndex = offset / kPayloadBytes;
@@ -713,6 +691,13 @@ bool VirtualFat::read(uint64_t offset, uint8_t* out, size_t size) const {
       const uint32_t logicalCluster = static_cast<uint32_t>(dataOffset / 4096);
       const uint32_t inCluster = static_cast<uint32_t>(dataOffset % 4096);
       out[i] = 0;
+      if (statusClusterCount_ && logicalCluster + 2 >= statusFirstCluster_ &&
+          logicalCluster + 2 < statusFirstCluster_ + statusClusterCount_) {
+        const uint32_t statusOffset =
+            (logicalCluster + 2 - statusFirstCluster_) * 4096U + inCluster;
+        if (statusOffset < status_.size()) out[i] = static_cast<uint8_t>(status_[statusOffset]);
+        continue;
+      }
       for (const File& file : files_) {
         if (!file.clusterCount || logicalCluster + 2 < file.firstCluster ||
             logicalCluster + 2 >= file.firstCluster + file.clusterCount) continue;
@@ -762,12 +747,52 @@ void ExportGate::release() {
   }
 }
 
-bool PageReservation::canAppend() const { return freePages() >= 1; }
-bool PageReservation::canCreate() const {
-  return freePages() > reservedCommits &&
-         static_cast<uint64_t>(carry) + reservedCommits + 1U <= 126U;
+bool LowBatteryStop::begin(bool commitPageReserved) {
+  if (state_ != StopState::Recording) return false;
+  if (!commitPageReserved) {
+    state_ = StopState::SafeFault;
+    return false;
+  }
+  state_ = StopState::CommitReserved;
+  return true;
 }
-bool PageReservation::canDelete() const { return freePages() > reservedCommits; }
-bool PageReservation::canCompact() const { return carry <= 126; }
+
+bool LowBatteryStop::finishPartialDataPage(bool ok) {
+  if (state_ != StopState::CommitReserved || pagePrograms_ != 0) return false;
+  ++pagePrograms_;
+  if (!ok) state_ = StopState::SafeFault;
+  return ok;
+}
+
+bool LowBatteryStop::programCommit(bool ok) {
+  if (state_ != StopState::CommitReserved || pagePrograms_ > 1) return false;
+  ++pagePrograms_;
+  state_ = ok ? StopState::StoppedUnverified : StopState::SafeFault;
+  return ok;
+}
+
+bool PageReservation::canAppend() const {
+  const uint32_t fence = bootFenceNeeded ? 1U : 0U;
+  return freePages() > fence;  // an already-reserved COMMIT may consume its own page
+}
+bool PageReservation::canCreate() const {
+  pebble_format::PageReservation r = {
+      static_cast<uint16_t>(std::min<uint32_t>(used, UINT16_MAX)),
+      static_cast<uint16_t>(std::min<uint32_t>(reservedCommits, UINT16_MAX)),
+      static_cast<uint16_t>(std::min<uint32_t>(carry, UINT16_MAX)), bootFenceNeeded};
+  return pebble_format::canCreateRecording(r);
+}
+bool PageReservation::canDelete() const {
+  pebble_format::PageReservation r = {
+      static_cast<uint16_t>(std::min<uint32_t>(used, UINT16_MAX)),
+      static_cast<uint16_t>(std::min<uint32_t>(reservedCommits, UINT16_MAX)),
+      static_cast<uint16_t>(std::min<uint32_t>(carry, UINT16_MAX)), bootFenceNeeded};
+  return pebble_format::canDeleteRecording(r);
+}
+bool PageReservation::canCompact() const {
+  pebble_format::PageReservation r = {0, 0,
+      static_cast<uint16_t>(std::min<uint32_t>(carry, UINT16_MAX)), false};
+  return pebble_format::canCompact(r);
+}
 
 }  // namespace storage_v2

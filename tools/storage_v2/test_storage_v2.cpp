@@ -68,21 +68,21 @@ static void checkCrcAndFormats() {
   DataHeader data;
   data.recId = 0x12345678;
   data.blockIndex = 7;
-  auto dp = encodeDataHeader(data);
+  auto dp = encodeDataHeaderPage(data);
   DataHeader decoded;
-  assert(decodeDataHeader(dp.data(), &decoded));
+  assert(decodeDataHeaderPage(dp.data(), &decoded));
   assert(decoded.recId == data.recId && decoded.blockIndex == 7);
   dp[6] = 0x01;  // unknown/non-v1 flags are rejected even with stale CRC
-  assert(!decodeDataHeader(dp.data(), &decoded));
+  assert(!decodeDataHeaderPage(dp.data(), &decoded));
 
   IndexRecord ready;
   ready.type = RecordType::Ready;
   ready.seq = 10;
   ready.nextRecIdHW = 22;
   ready.nextSeqHW = 11;
-  auto rp = encodeIndexRecord(ready);
+  auto rp = encodeIndexRecordPage(ready);
   IndexRecord rd;
-  assert(decodeIndexRecord(rp.data(), &rd));
+  assert(decodeIndexRecordPage(rp.data(), &rd));
   assert(rd.nextRecIdHW == 22 && rd.nextSeqHW == 11);
   puts("PASS v2 formats: CRC-32/ISO-HDLC and strict PRB1/PRR1 decoding");
 }
@@ -185,8 +185,8 @@ static void checkTornDataAndRecords() {
   StorageModel createTorn;
   assert(createTorn.format());
   assert(!createTorn.writeRecording(10, audio, {0}, 0, 0, 111));
-  assert(createTorn.scan().quarantinedBlocks == 1 && !createTorn.scan().safe);
-  assert(!createTorn.medium().programPage(0, encodeDataHeader(DataHeader{}).data()));
+  assert(createTorn.scan().quarantinedBlocks == 1 && createTorn.scan().safe);
+  assert(!createTorn.medium().programPage(0, encodeDataHeaderPage(DataHeader{}).data()));
 
   StorageModel appendTorn;
   assert(appendTorn.format());
@@ -217,7 +217,7 @@ static void checkTornDataAndRecords() {
   assert(reclaimTorn.deleteRecording(14));
   assert(!reclaimTorn.reclaimRecording(14, 0, 32U * 8U + 3));
   scan = reclaimTorn.scan();
-  assert(scan.quarantinedBlocks == 1 && !scan.safe);
+  assert(scan.quarantinedBlocks == 1 && scan.safe);
   assert(std::find(scan.deleted.begin(), scan.deleted.end(), 14) != scan.deleted.end());
   puts("PASS torn writes: CREATE/APPEND/COMMIT/DELETE/RECLAIM fail closed");
 }
@@ -232,7 +232,8 @@ static void checkConflictsAndCorruption() {
   assert(duplicate.writeRecording(20, b, {1}));
   assert(duplicate.commitRecording(20, a, {0}));
   ScanResult scan = duplicate.scan();
-  assert(!scan.safe && scan.tierA.empty() && scan.tierB == std::vector<uint32_t>{20});
+  assert(scan.safe && scan.tierA.empty() && scan.tierB == std::vector<uint32_t>{20});
+  assert(scan.isolated == std::vector<uint32_t>{20});
 
   StorageModel missing;
   assert(missing.format());
@@ -241,13 +242,14 @@ static void checkConflictsAndCorruption() {
   DataHeader header;
   header.recId = 21;
   header.blockIndex = 1;
-  const auto encodedHeader = encodeDataHeader(header);
+  const auto encodedHeader = encodeDataHeaderPage(header);
   std::copy(encodedHeader.begin(), encodedHeader.end(), page.begin());
   std::copy(a.begin(), a.begin() + 224, page.begin() + 32);
   assert(missing.medium().programPage(0, page.data()));
   assert(missing.commitRecording(21, a, {0}));
   scan = missing.scan();
-  assert(!scan.safe && scan.tierA.empty() && scan.tierB == std::vector<uint32_t>{21});
+  assert(scan.safe && scan.tierA.empty() && scan.tierB == std::vector<uint32_t>{21});
+  assert(scan.isolated == std::vector<uint32_t>{21});
 
   StorageModel wrongLength;
   assert(wrongLength.format());
@@ -255,7 +257,8 @@ static void checkConflictsAndCorruption() {
   auto claimed = pattern(kPayloadBytes + 10, 1);
   assert(wrongLength.commitRecording(22, claimed, {0}));
   scan = wrongLength.scan();
-  assert(!scan.safe && scan.tierA.empty() && scan.tierB == std::vector<uint32_t>{22});
+  assert(scan.safe && scan.tierA.empty() && scan.tierB == std::vector<uint32_t>{22});
+  assert(scan.isolated == std::vector<uint32_t>{22});
 
   StorageModel bodyDamage;
   assert(bodyDamage.format());
@@ -273,7 +276,7 @@ static void checkConflictsAndCorruption() {
   conflicting.type = RecordType::Delete;
   conflicting.seq = 2;
   conflicting.recId = 24;
-  auto conflictPage = encodeIndexRecord(conflicting);
+  auto conflictPage = encodeIndexRecordPage(conflicting);
   assert(sameSeq.medium().programPage(kIndexBase + 3 * kPageBytes, conflictPage.data()));
   assert(!sameSeq.scan().safe);
   puts("PASS recovery conflicts: duplicate, gap, length mismatch and body CRC damage");
@@ -331,14 +334,14 @@ static void checkCompactionAndHighWater() {
   header.firstSeq = 100;
   header.nextRecIdHW = 100;
   header.nextSeqHW = 101;
-  auto hp = encodeBankHeader(header);
+  auto hp = encodeBankHeaderPage(header);
   assert(sameGeneration.medium().programPage(kIndexBase + kIndexBankBytes, hp.data()));
   IndexRecord ready;
   ready.type = RecordType::Ready;
   ready.seq = 100;
   ready.nextRecIdHW = 100;
   ready.nextSeqHW = 101;
-  auto rp = encodeIndexRecord(ready);
+  auto rp = encodeIndexRecordPage(ready);
   assert(sameGeneration.medium().programPage(kIndexBase + kIndexBankBytes + 256, rp.data()));
   assert(!sameGeneration.scan().safe);
 
@@ -347,11 +350,11 @@ static void checkCompactionAndHighWater() {
   extra.type = RecordType::Delete;
   extra.seq = 99;
   extra.recId = 30;
-  rp = encodeIndexRecord(extra);
+  rp = encodeIndexRecordPage(extra);
   // page3 is occupied by no record in this fixture? format page0/1, commit page2;
   // leave page3 blank and place a valid record at page4.
   assert(gap.medium().programPage(kIndexBase + 4 * 256, rp.data()));
-  assert(!gap.scan().safe);
+  assert(gap.scan().safe);
   puts("PASS index: compaction cuts, READY selection, tombstones, high-water and bank conflicts");
 }
 
@@ -391,6 +394,102 @@ static void checkReservationsAndExportGate() {
   puts("PASS gates: COMMIT reservation, exclusive audio/raw export and mediaGen faulting");
 }
 
+static void checkBootFenceFreshEraseAndSafetyLayers() {
+  StorageModel storage;
+  assert(storage.format());
+  assert(storage.medium().eraseAttempts() == 8);
+  const auto audio = pattern(300, 0x51);
+  writeAndCommit(&storage, 50, audio, {7});
+  assert(storage.medium().eraseAttempts() == 9);
+
+  storage.restart();
+  ScanResult scan = storage.scan(false);
+  assert(scan.lastOccupiedPage == 2 && scan.nextWritePage == 4);
+  assert(scan.tierA.empty() && scan.committedUnverified == std::vector<uint32_t>{50});
+  const std::vector<uint8_t> empty;
+  const std::vector<uint32_t> noBlocks;
+  assert(storage.commitRecording(51, empty, noBlocks));
+  assert(storage.medium().isAllFF(kIndexBase + 3 * kPageBytes, kPageBytes));
+  IndexRecord fenced;
+  std::array<uint8_t, kPageBytes> page{};
+  assert(storage.medium().read(kIndexBase + 4 * kPageBytes, page.data(), page.size()));
+  assert(decodeIndexRecordPage(page.data(), &fenced) && fenced.recId == 51);
+
+  StorageModel occupiedTarget;
+  assert(occupiedTarget.format());
+  assert(occupiedTarget.commitRecording(70, empty, noBlocks));
+  occupiedTarget.restart();  // cursor is fenced to page4
+  occupiedTarget.medium().corruptToZero(kIndexBase + 4 * kPageBytes, 0x01);
+  const uint64_t programsBefore = occupiedTarget.medium().programAttempts();
+  const uint64_t erasesBefore = occupiedTarget.medium().eraseAttempts();
+  assert(!occupiedTarget.commitRecording(71, empty, noBlocks));
+  assert(occupiedTarget.medium().programAttempts() == programsBefore);
+  assert(occupiedTarget.medium().eraseAttempts() == erasesBefore);
+  assert(!occupiedTarget.scan().deviceSafe);
+
+  storage.medium().corruptToZero(8 * kEraseBytes, 0x01);
+  scan = storage.scan();
+  assert(scan.deviceSafe && scan.safe && scan.quarantinedBlocks == 1);
+  assert(scan.quarantinedPhysicalBlocks == std::vector<uint32_t>{8});
+
+  for (uint32_t off = 0; off < kIndexBytes; off += kEraseBytes)
+    assert(storage.medium().eraseBlock(kIndexBase + off));
+  scan = storage.scan();
+  assert(!scan.deviceSafe && !scan.safe && scan.activeBank < 0 && scan.tierA.empty());
+  assert(std::find(scan.tierB.begin(), scan.tierB.end(), 50) != scan.tierB.end());
+
+  PageReservation pages;
+  pages.used = 127;
+  pages.bootFenceNeeded = true;
+  assert(!pages.canAppend());
+  puts("PASS P1/P2: fresh erase, reboot fence, deferred verification and three-layer safety");
+}
+
+static void checkStatusSnapshotAndLowBatteryStop() {
+  StorageModel storage;
+  assert(storage.format());
+  const auto audio = pattern(128, 0x61);
+  writeAndCommit(&storage, 60, audio, {2});
+  const ScanResult frozen = storage.scan(false);
+  assert(frozen.tierA.empty() && frozen.committedUnverified.size() == 1);
+  VirtualFat volume;
+  assert(volume.build(storage.medium(), frozen));
+  g_volume = &volume;
+  FATFS fs;
+  FIL file;
+  assert(f_mount(&fs, "", 1) == FR_OK);
+  assert(f_open(&file, "0000003C.ADP", FA_READ) == FR_NO_FILE);
+  assert(f_open(&file, "STATUS.TXT", FA_READ) == FR_OK);
+  std::array<char, 512> bytes{};
+  UINT got = 0;
+  assert(f_read(&file, bytes.data(), bytes.size(), &got) == FR_OK);
+  const std::string status(bytes.data(), got);
+  assert(status.find("TIER_A=0") != std::string::npos);
+  assert(status.find("COMMITTED_UNVERIFIED=1") != std::string::npos);
+  assert(f_close(&file) == FR_OK);
+  f_mount(nullptr, "", 0);
+  g_volume = nullptr;
+
+  LowBatteryStop normal;
+  assert(normal.begin(true));
+  assert(normal.finishPartialDataPage(true));
+  assert(normal.programCommit(true));
+  assert(normal.state() == StopState::StoppedUnverified && normal.pagePrograms() == 2);
+  assert(!normal.programCommit(true));  // no retry and no third page program
+
+  LowBatteryStop noReservation;
+  assert(!noReservation.begin(false));
+  assert(noReservation.state() == StopState::SafeFault && noReservation.pagePrograms() == 0);
+  LowBatteryStop tornData;
+  assert(tornData.begin(true) && !tornData.finishPartialDataPage(false));
+  assert(!tornData.programCommit(true) && tornData.pagePrograms() == 1);
+  LowBatteryStop tornCommit;
+  assert(tornCommit.begin(true) && tornCommit.finishPartialDataPage(true));
+  assert(!tornCommit.programCommit(false));
+  assert(tornCommit.state() == StopState::SafeFault && tornCommit.pagePrograms() == 2);
+  puts("PASS low battery/status: max-two programs, no retry, unverified hidden, frozen STATUS.TXT");
+}
+
 static void checkFullIndexBank() {
   StorageModel storage;
   assert(storage.format());
@@ -418,6 +517,8 @@ int main() {
   checkConflictsAndCorruption();
   checkCompactionAndHighWater();
   checkReservationsAndExportGate();
+  checkBootFenceFreshEraseAndSafetyLayers();
+  checkStatusSnapshotAndLowBatteryStop();
   checkFullIndexBank();
   puts("ALL STORAGE V2 HOST TESTS PASSED (no physical device accessed)");
 }

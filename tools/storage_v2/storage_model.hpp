@@ -6,6 +6,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#include "../../pebble_format/pebble_format.h"
 
 namespace storage_v2 {
 
@@ -20,6 +21,10 @@ constexpr uint32_t kIndexBase = kDataBlocks * kEraseBytes;
 constexpr uint32_t kPagesPerBank = kIndexBankBytes / kPageBytes;
 constexpr uint32_t kVirtualSectorBytes = 512;
 constexpr uint32_t kVirtualSectors = 4003;
+
+static_assert(kPageBytes == pebble_format::kPageBytes, "shared page size mismatch");
+static_assert(kEraseBytes == pebble_format::kEraseBytes, "shared erase size mismatch");
+static_assert(kDataBlocks == pebble_format::kDataBlocks, "shared data geometry mismatch");
 
 uint32_t crc32(const uint8_t* data, size_t size);
 
@@ -44,54 +49,30 @@ class NorMedium {
 
   bool pageConsumed(uint32_t page) const;
   void corruptToZero(uint32_t address, uint8_t mask);
+  uint64_t programAttempts() const { return programAttempts_; }
+  uint64_t eraseAttempts() const { return eraseAttempts_; }
 
  private:
   std::vector<uint8_t> bytes_;
   std::vector<uint8_t> consumedPages_;
+  uint64_t programAttempts_ = 0;
+  uint64_t eraseAttempts_ = 0;
 };
 
-struct DataHeader {
-  uint16_t version = 1;
-  uint16_t flags = 0;
-  uint32_t recId = 0;
-  uint32_t blockIndex = 0;
-  uint64_t startTime = UINT64_MAX;
-};
+using DataHeader = pebble_format::DataHeader;
 
-std::array<uint8_t, 32> encodeDataHeader(const DataHeader& header);
-bool decodeDataHeader(const uint8_t* data, DataHeader* header);
+std::array<uint8_t, 32> encodeDataHeaderPage(const DataHeader& header);
+bool decodeDataHeaderPage(const uint8_t* data, DataHeader* header);
 
-struct BankHeader {
-  uint16_t version = 1;
-  uint16_t bankId = 0;
-  uint32_t generation = 0;
-  uint32_t firstSeq = 0;
-  uint32_t nextRecIdHW = 1;
-  uint32_t nextSeqHW = 1;
-  uint64_t createdTime = 0;
-};
+using BankHeader = pebble_format::BankHeader;
+using RecordType = pebble_format::RecordType;
+using IndexRecord = pebble_format::IndexRecord;
 
-enum class RecordType : uint8_t { Commit = 1, Delete = 2, Ready = 3 };
-
-struct IndexRecord {
-  RecordType type = RecordType::Ready;
-  uint8_t version = 1;
-  uint32_t seq = 0;
-  uint32_t recId = UINT32_MAX;
-  uint32_t byteLen = UINT32_MAX;
-  uint32_t bodyCrc32 = UINT32_MAX;
-  uint32_t blockCount = UINT32_MAX;
-  uint32_t firstCluster = UINT32_MAX;
-  uint64_t time = 0;
-  uint32_t nextRecIdHW = UINT32_MAX;
-  uint32_t nextSeqHW = UINT32_MAX;
-};
-
-std::array<uint8_t, kPageBytes> encodeBankHeader(const BankHeader& header);
-bool decodeBankHeader(const uint8_t* data, uint16_t physicalBank,
+std::array<uint8_t, kPageBytes> encodeBankHeaderPage(const BankHeader& header);
+bool decodeBankHeaderPage(const uint8_t* data, uint16_t physicalBank,
                       BankHeader* header);
-std::array<uint8_t, kPageBytes> encodeIndexRecord(const IndexRecord& record);
-bool decodeIndexRecord(const uint8_t* data, IndexRecord* record);
+std::array<uint8_t, kPageBytes> encodeIndexRecordPage(const IndexRecord& record);
+bool decodeIndexRecordPage(const uint8_t* data, IndexRecord* record);
 
 struct CatalogEntry {
   uint32_t recId = 0;
@@ -103,13 +84,19 @@ struct CatalogEntry {
 
 struct ScanResult {
   bool safe = true;
+  bool deviceSafe = true;
   int activeBank = -1;
   uint32_t generation = 0;
   uint32_t nextRecId = 1;
   uint32_t nextSeq = 1;
   size_t quarantinedBlocks = 0;
+  uint8_t lastOccupiedPage = 0;
+  uint8_t nextWritePage = 0xFF;
   std::vector<CatalogEntry> tierA;
   std::vector<uint32_t> tierB;
+  std::vector<uint32_t> committedUnverified;
+  std::vector<uint32_t> isolated;
+  std::vector<uint32_t> quarantinedPhysicalBlocks;
   std::vector<uint32_t> deleted;
   std::vector<std::string> issues;
 };
@@ -130,6 +117,7 @@ class StorageModel {
   NorMedium& medium() { return medium_; }
   const NorMedium& medium() const { return medium_; }
   uint64_t mediaGen() const { return mediaGen_; }
+  void restart();
 
   bool format(uint32_t nextRecId = 1, uint32_t nextSeq = 1);
   bool writeRecording(uint32_t recId, const std::vector<uint8_t>& audio,
@@ -146,11 +134,16 @@ class StorageModel {
                         size_t tornBits = kEraseBytes * 8U);
   bool compact(CompactFault fault = CompactFault::None);
 
-  ScanResult scan() const;
+  ScanResult scan(bool verifyBodies = true) const;
 
  private:
   NorMedium medium_;
   uint64_t mediaGen_ = 0;
+  uint64_t bootEpoch_ = 1;
+  bool indexCursorValid_ = false;
+  bool indexMutationFaulted_ = false;
+  int indexCursorBank_ = -1;
+  uint16_t indexWritePage_ = 0;
 
   bool program(uint32_t address, const uint8_t page[kPageBytes], size_t bits);
   bool erase(uint32_t address, size_t bits = kEraseBytes * 8U);
@@ -160,6 +153,7 @@ class StorageModel {
 class VirtualFat {
  public:
   bool build(const NorMedium& medium, const std::vector<CatalogEntry>& entries);
+  bool build(const NorMedium& medium, const ScanResult& snapshot);
   uint64_t size() const { return static_cast<uint64_t>(kVirtualSectors) * 512U; }
   bool read(uint64_t offset, uint8_t* out, size_t size) const;
   std::vector<uint8_t> image() const;
@@ -176,8 +170,25 @@ class VirtualFat {
   std::array<uint8_t, 512> boot_{};
   std::array<uint8_t, 1024> fat_{};
   std::array<uint8_t, 16384> root_{};
+  std::string status_;
+  uint16_t statusFirstCluster_ = 0;
+  uint16_t statusClusterCount_ = 0;
 
   bool readFileByte(const File& file, uint32_t offset, uint8_t* value) const;
+};
+
+enum class StopState { Recording, CommitReserved, StoppedUnverified, SafeFault };
+
+class LowBatteryStop {
+ public:
+  StopState state() const { return state_; }
+  uint8_t pagePrograms() const { return pagePrograms_; }
+  bool begin(bool commitPageReserved);
+  bool finishPartialDataPage(bool programAndReadbackOk);
+  bool programCommit(bool programAndReadbackOk);
+ private:
+  StopState state_ = StopState::Recording;
+  uint8_t pagePrograms_ = 0;
 };
 
 enum class ExportState {
@@ -213,6 +224,7 @@ struct PageReservation {
   uint32_t used = 0;
   uint32_t reservedCommits = 0;
   uint32_t carry = 0;
+  bool bootFenceNeeded = false;
 
   uint32_t freePages() const { return used >= kPagesPerBank ? 0 : kPagesPerBank - used; }
   bool canAppend() const;

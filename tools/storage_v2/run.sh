@@ -11,7 +11,9 @@ cc -std=c99 -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
 c++ -std=c++17 -Wall -Wextra -Werror -O1 -g \
   -fsanitize=address,undefined -fno-omit-frame-pointer \
   -I"$project_dir/tools/storage_v2" \
+  -I"$project_dir/pebble_format" \
   -I"$project_dir/tools/fatfs_host/fatfs" \
+  "$project_dir/pebble_format/pebble_format.cpp" \
   "$project_dir/tools/storage_v2/storage_model.cpp" \
   "$project_dir/tools/storage_v2/test_storage_v2.cpp" \
   "$trial_dir/ff.o" -o "$trial_dir/test_storage_v2"
