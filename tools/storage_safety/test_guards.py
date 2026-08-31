@@ -45,12 +45,17 @@ class HardwareHoldTests(unittest.TestCase):
                 self.assertNotIn('UNEXPECTED_ARDUINO_CALL', result.stdout)
 
     def test_build_cannot_upload(self):
-        for option in ['-u', '--upload', '--upload=true', '--port=/dev/DO_NOT_OPEN']:
-            with self.subTest(option=option):
-                result = self.run_shell('bash scripts/build.sh ' + option)
-                self.assertEqual(result.returncode, 1)
-                self.assertIn('compile-only', result.stderr)
-                self.assertNotIn('UNEXPECTED_ARDUINO_CALL', result.stdout)
+        cases = {
+            'build.sh': ['-u', '--upload', '--upload=true', '--port=/dev/DO_NOT_OPEN'],
+            'build_g0.sh': ['-u', '--upload', '--port=/dev/DO_NOT_OPEN', '--protocol=serial'],
+        }
+        for script, options in cases.items():
+            for option in options:
+                with self.subTest(script=script, option=option):
+                    result = self.run_shell(f'bash scripts/{script} ' + option)
+                    self.assertEqual(result.returncode, 1)
+                    self.assertIn('compile-only', result.stderr)
+                    self.assertNotIn('UNEXPECTED_ARDUINO_CALL', result.stdout)
 
 
 class ScopedHardwareTests(unittest.TestCase):
