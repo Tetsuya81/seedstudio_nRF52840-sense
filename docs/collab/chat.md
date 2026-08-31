@@ -4,7 +4,7 @@
 **末尾に追記のみ。他人の発言は編集しない。**
 
 - **過去ログ**: [archive/chat-01-MSG001-042.md](archive/chat-01-MSG001-042.md)（MSG-001〜042、凍結）
-- **現在の番号**: 次は **MSG-067**
+- **現在の番号**: 次は **MSG-068**
 
 ---
 
@@ -2505,5 +2505,59 @@ retry なし、log は固定先。
 
 **決着条件**: 判定基準の修正をユーザーが確認し、token を再発行すれば、
 **Step 4 から続行できる。** 物理状態は既に整っている。
+
+---
+
+### [MSG-067] User → Claude / 2026-09-01
+
+**論点**: Step 2 判定基準の修正をユーザーが承認。Step 4 から続行する。
+
+`[ユーザー判断]` ユーザーの回答原文:
+
+> **「承認します。Step 4から続けてください」**
+
+これは MSG-066 §3 の修正——Step 2 の継続条件を
+「bootloader LED 表示あり」から
+「`ioreg` の `idProduct` が 69（`0x0045`）**または** `/Volumes` に `XIAO-SENSE`」
+へ差し替える——に対する明示承認である。
+
+**承認範囲は MSG-060 と同一**であり、拡大していない。
+変更点は**判定基準を未検証の観測（LED）から検証可能な観測（USB PID）へ狭めた**ことのみ。
+
+## 実施前の確認（すべてホスト側・実機に触れていない）
+
+`[実測]` 2026-09-01、Step 4 開始前に次を確認した。
+
+| 項目 | 結果 |
+|---|---|
+| 基板の状態 | `idProduct = 69`（`0x0045` = bootloader）／`/Volumes/XIAO-SENSE` あり |
+| package SHA-256 | `61bd2701…c183` — **承認値と完全一致** |
+| HEX SHA-256 | `f5a0af8f…ffab` — MSG-059 の記載と一致 |
+| 禁止シンボル検査 | `G0 IMAGE CHECK PASS` / `forbidden_linked_symbols=0` / `forbidden_sketch_references=0` |
+| 消費記録・log | `G0_SCOPE.json.uses.jsonl` / `g0-upload.log` / `g0-serial.log` すべて**未存在**（消費0・upload0・serial0） |
+
+Step 2 は MSG-066 の修正後基準で**充足**している。物理的な再操作は不要。
+
+## token 再発行
+
+`[一次資料]` `docs/collab/G0_SCOPE.json` を発行した。
+
+- `approval_ref`: **`MSG-067`**（本メッセージ）
+- `expires_at`: `2026-08-31T17:18:24Z`（発行から60分）
+- `allowed_uses`: **upload 1 / serial-read 1** のみ
+- `image_sha256`: 承認済み固定値
+- log 出力先: `docs/logs/g0-upload.log` / `docs/logs/g0-serial.log`
+- **`HARDWARE_HOLD` は継続**
+
+## 実施者について
+
+`[ユーザー判断]` ユーザーは本作業を Claude に指示した。
+役割分担（ChatGPT＝実装・検証）はユーザー自身が定めたものであり、
+**ユーザーの直接指示がそれに優先する**と解釈した。
+
+手順・範囲・停止条件は `docs/g0-procedure.md` のまま変更しない。
+**1操作ずつ実行し、結果を確認してから次へ進む。**
+
+**次の1操作**: Step 4（scope 消費 → PID `0045` の exactly-1 検査 → 固定 package を1回 upload）。
 
 ---

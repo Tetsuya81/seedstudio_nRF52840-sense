@@ -1,8 +1,8 @@
 {
   "version": 1,
   "scope": "G0-G1A",
-  "approval_ref": "MSG-060",
-  "expires_at": "2026-08-31T07:12:10Z",
+  "approval_ref": "MSG-067",
+  "expires_at": "2026-08-31T17:18:24Z",
   "image_sha256": "61bd270181460e84491535d8cbd8fecb31c36313d15a2d1e58d8e0cc4252c183",
   "allowed_uses": {
     "upload": 1,
