@@ -79,3 +79,23 @@ a timing input, not a substitute for measurement.
 `POWER->POFCON` is only a candidate detection path. Its usefulness depends on the XIAO
 battery/charger/regulator path and must be established from the schematic plus the approved
 G0-or-later measurement; it is not selected by this document.
+
+## Fault and capacity semantics (MSG-051 / MSG-052)
+
+- An erase command failure, WIP timeout, 4,096-byte all-FF read failure, or all-FF mismatch
+  latches a **media I/O `FAULT`** for the boot. Do not reuse `DEVICE_SAFE`, which means
+  ownership/reconciliation inconsistency.
+- The failed attempt consumes its token and invalidates the whole admission token. No page
+  program on that block or on any spare block. No automatic retry, no same-boot fallback.
+- If the threshold flush had already started, the written data blocks are classified on the
+  next boot by the normal scan (Tier B `INCOMPLETE` or quarantine). They are never published
+  as Tier A.
+- When data blocks run out mid-recording, stop PDM, drain accepted samples, finalize
+  `byteLen`/`bodyCrc32` at the savable boundary, and COMMIT using the reservation held since
+  press. The saved prefix becomes Tier A after body verification; the stop reason is
+  `STOP_CAPACITY`.
+- Capacity evaluation lives in one shared helper used by `STATUS.TXT`, admission, and the
+  device indication, so the three can never disagree.
+- Host/mock gates test **semantic indications** (`NORMAL`, `CAPACITY_WARNING`,
+  `STOP_CAPACITY`, `IO_FAULT`), not colours or millisecond values. Firmware tests separately
+  verify the mapping from semantic state to LED pattern.
