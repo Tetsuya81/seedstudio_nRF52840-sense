@@ -1,0 +1,109 @@
+
+[2026-08-31T16:21:15.024575+00:00] G0 serial-read consumed; baud=115200
+{
+  "detected_ports": [
+    {
+      "port": {
+        "address": "/dev/cu.debug-console",
+        "label": "/dev/cu.debug-console",
+        "protocol": "serial",
+        "protocol_label": "Serial Port",
+        "properties": {}
+      }
+    },
+    {
+      "port": {
+        "address": "/dev/cu.Bluetooth-Incoming-Port",
+        "label": "/dev/cu.Bluetooth-Incoming-Port",
+        "protocol": "serial",
+        "protocol_label": "Serial Port",
+        "properties": {}
+      }
+    },
+    {
+      "matching_boards": [
+        {
+          "name": "Seeed XIAO nRF52840 Sense",
+          "fqbn": "Seeeduino:nrf52:xiaonRF52840Sense"
+        }
+      ],
+      "port": {
+        "address": "/dev/cu.usbmodem1101",
+        "label": "/dev/cu.usbmodem1101",
+        "protocol": "serial",
+        "protocol_label": "Serial Port (USB)",
+        "properties": {
+          "pid": "0x8045",
+          "serialNumber": "D4210182DC570AC2",
+          "vid": "0x2886"
+        },
+        "hardware_id": "D4210182DC570AC2"
+      }
+    }
+  ]
+}
+G0_BANNER image=g0_microphone_smoke sample_rate=16000 channels=1 gain=20
+G0_POLICY qspi=0 flash=0 filesystem=0 msc=0 commands=0 reset=0 host_write_required=0
+G0_BEGIN result=ok
+G0_REPORT elapsed_ms=80979 samples=1248000 callbacks=4875 window_samples=1248000 dc=-0.4 rms=62.8 rms_dbfs=-54.3 peak=8181 peak_dbfs=-12.1 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=81979 samples=1264128 callbacks=4938 window_samples=16128 dc=-1.6 rms=7.1 rms_dbfs=-73.3 peak=20 peak_dbfs=-64.3 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=82979 samples=1280000 callbacks=5000 window_samples=15872 dc=4.6 rms=12.2 rms_dbfs=-68.6 peak=28 peak_dbfs=-61.4 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=83979 samples=1296128 callbacks=5063 window_samples=16128 dc=-7.2 rms=14.2 rms_dbfs=-67.3 peak=30 peak_dbfs=-60.8 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=84979 samples=1312000 callbacks=5125 window_samples=15872 dc=2.4 rms=19.9 rms_dbfs=-64.4 peak=34 peak_dbfs=-59.7 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=85979 samples=1328128 callbacks=5188 window_samples=16128 dc=-8.4 rms=10.3 rms_dbfs=-70.0 peak=23 peak_dbfs=-63.1 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=86979 samples=1344000 callbacks=5250 window_samples=15872 dc=9.3 rms=10.7 rms_dbfs=-69.7 peak=28 peak_dbfs=-61.4 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=87979 samples=1360128 callbacks=5313 window_samples=16128 dc=-7.1 rms=8.8 rms_dbfs=-71.4 peak=22 peak_dbfs=-63.5 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=88979 samples=1376000 callbacks=5375 window_samples=15872 dc=3.8 rms=5.1 rms_dbfs=-76.2 peak=15 peak_dbfs=-66.8 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=89979 samples=1392128 callbacks=5438 window_samples=16128 dc=5.6 rms=6.6 rms_dbfs=-73.9 peak=18 peak_dbfs=-65.2 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=90979 samples=1408000 callbacks=5500 window_samples=15872 dc=-5.2 rms=8.2 rms_dbfs=-72.1 peak=19 peak_dbfs=-64.7 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=91979 samples=1424128 callbacks=5563 window_samples=16128 dc=1.7 rms=7.6 rms_dbfs=-72.7 peak=22 peak_dbfs=-63.5 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=92979 samples=1440000 callbacks=5625 window_samples=15872 dc=12.5 rms=16.6 rms_dbfs=-65.9 peak=41 peak_dbfs=-58.1 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=93979 samples=1456128 callbacks=5688 window_samples=16128 dc=-16.7 rms=23.7 rms_dbfs=-62.8 peak=41 peak_dbfs=-58.1 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=94979 samples=1472000 callbacks=5750 window_samples=15872 dc=2.5 rms=13.8 rms_dbfs=-67.5 peak=29 peak_dbfs=-61.1 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=95979 samples=1488128 callbacks=5813 window_samples=16128 dc=-0.0 rms=12.4 rms_dbfs=-68.4 peak=26 peak_dbfs=-62.0 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=96979 samples=1504000 callbacks=5875 window_samples=15872 dc=-2.9 rms=7.7 rms_dbfs=-72.6 peak=22 peak_dbfs=-63.5 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=97979 samples=1520128 callbacks=5938 window_samples=16128 dc=3.8 rms=6.8 rms_dbfs=-73.7 peak=21 peak_dbfs=-63.9 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=98979 samples=1536000 callbacks=6000 window_samples=15872 dc=5.3 rms=12.8 rms_dbfs=-68.2 peak=29 peak_dbfs=-61.1 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=99979 samples=1552128 callbacks=6063 window_samples=16128 dc=-1.7 rms=9.9 rms_dbfs=-70.4 peak=22 peak_dbfs=-63.5 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=100979 samples=1568000 callbacks=6125 window_samples=15872 dc=6.5 rms=12.4 rms_dbfs=-68.4 peak=28 peak_dbfs=-61.4 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=101979 samples=1584128 callbacks=6188 window_samples=16128 dc=-17.5 rms=30.3 rms_dbfs=-60.7 peak=64 peak_dbfs=-54.2 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=102979 samples=1600000 callbacks=6250 window_samples=15872 dc=10.0 rms=20.3 rms_dbfs=-64.2 peak=45 peak_dbfs=-57.2 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=103979 samples=1616128 callbacks=6313 window_samples=16128 dc=-4.3 rms=10.3 rms_dbfs=-70.1 peak=26 peak_dbfs=-62.0 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=104979 samples=1632000 callbacks=6375 window_samples=15872 dc=10.1 rms=10.9 rms_dbfs=-69.6 peak=24 peak_dbfs=-62.7 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=105979 samples=1648128 callbacks=6438 window_samples=16128 dc=-11.5 rms=17.4 rms_dbfs=-65.5 peak=35 peak_dbfs=-59.4 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=106979 samples=1664000 callbacks=6500 window_samples=15872 dc=-1.8 rms=7.4 rms_dbfs=-72.9 peak=20 peak_dbfs=-64.3 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=107979 samples=1680128 callbacks=6563 window_samples=16128 dc=-13.3 rms=17.1 rms_dbfs=-65.7 peak=34 peak_dbfs=-59.7 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=108979 samples=1696000 callbacks=6625 window_samples=15872 dc=23.7 rms=26.4 rms_dbfs=-61.9 peak=47 peak_dbfs=-56.9 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=109979 samples=1712128 callbacks=6688 window_samples=16128 dc=-2.7 rms=31.4 rms_dbfs=-60.4 peak=56 peak_dbfs=-55.3 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=110979 samples=1728000 callbacks=6750 window_samples=15872 dc=-15.0 rms=19.7 rms_dbfs=-64.4 peak=46 peak_dbfs=-57.1 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=111979 samples=1744128 callbacks=6813 window_samples=16128 dc=5.4 rms=25.3 rms_dbfs=-62.2 peak=51 peak_dbfs=-56.2 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=112979 samples=1760000 callbacks=6875 window_samples=15872 dc=2.5 rms=13.2 rms_dbfs=-67.9 peak=28 peak_dbfs=-61.4 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=113979 samples=1776128 callbacks=6938 window_samples=16128 dc=2.8 rms=9.6 rms_dbfs=-70.7 peak=26 peak_dbfs=-62.0 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=114979 samples=1792000 callbacks=7000 window_samples=15872 dc=-7.3 rms=19.2 rms_dbfs=-64.6 peak=35 peak_dbfs=-59.4 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=115979 samples=1808128 callbacks=7063 window_samples=16128 dc=-2.0 rms=9.0 rms_dbfs=-71.2 peak=24 peak_dbfs=-62.7 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=116979 samples=1824000 callbacks=7125 window_samples=15872 dc=18.5 rms=24.5 rms_dbfs=-62.5 peak=54 peak_dbfs=-55.7 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=117979 samples=1839872 callbacks=7187 window_samples=15872 dc=-14.1 rms=16.6 rms_dbfs=-65.9 peak=32 peak_dbfs=-60.2 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=118979 samples=1856000 callbacks=7250 window_samples=16128 dc=-1.7 rms=5.3 rms_dbfs=-75.7 peak=15 peak_dbfs=-66.8 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=119979 samples=1871872 callbacks=7312 window_samples=15872 dc=0.3 rms=3.9 rms_dbfs=-78.6 peak=14 peak_dbfs=-67.4 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=120979 samples=1888000 callbacks=7375 window_samples=16128 dc=-18.7 rms=26.6 rms_dbfs=-61.8 peak=60 peak_dbfs=-54.7 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=121979 samples=1903872 callbacks=7437 window_samples=15872 dc=23.9 rms=34.4 rms_dbfs=-59.6 peak=71 peak_dbfs=-53.3 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=122979 samples=1920000 callbacks=7500 window_samples=16128 dc=-15.5 rms=18.9 rms_dbfs=-64.8 peak=41 peak_dbfs=-58.1 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=123979 samples=1935872 callbacks=7562 window_samples=15872 dc=6.7 rms=24.4 rms_dbfs=-62.6 peak=47 peak_dbfs=-56.9 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=124979 samples=1952000 callbacks=7625 window_samples=16128 dc=6.4 rms=29.7 rms_dbfs=-60.9 peak=51 peak_dbfs=-56.2 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=125979 samples=1967872 callbacks=7687 window_samples=15872 dc=-3.2 rms=12.8 rms_dbfs=-68.2 peak=39 peak_dbfs=-58.5 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=126979 samples=1984000 callbacks=7750 window_samples=16128 dc=3.6 rms=9.4 rms_dbfs=-70.8 peak=24 peak_dbfs=-62.7 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=127979 samples=1999872 callbacks=7812 window_samples=15872 dc=-1.6 rms=11.4 rms_dbfs=-69.1 peak=24 peak_dbfs=-62.7 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=128979 samples=2016000 callbacks=7875 window_samples=16128 dc=2.5 rms=45.0 rms_dbfs=-57.2 peak=80 peak_dbfs=-52.2 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=129979 samples=2031872 callbacks=7937 window_samples=15872 dc=9.7 rms=33.6 rms_dbfs=-59.8 peak=68 peak_dbfs=-53.7 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=130979 samples=2048000 callbacks=8000 window_samples=16128 dc=-17.6 rms=27.2 rms_dbfs=-61.6 peak=56 peak_dbfs=-55.3 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=131979 samples=2063872 callbacks=8062 window_samples=15872 dc=0.8 rms=11.3 rms_dbfs=-69.2 peak=26 peak_dbfs=-62.0 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=132979 samples=2080000 callbacks=8125 window_samples=16128 dc=1.1 rms=6.1 rms_dbfs=-74.6 peak=16 peak_dbfs=-66.2 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=133979 samples=2095872 callbacks=8187 window_samples=15872 dc=3.8 rms=12.6 rms_dbfs=-68.3 peak=29 peak_dbfs=-61.1 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=134979 samples=2112000 callbacks=8250 window_samples=16128 dc=-11.9 rms=14.7 rms_dbfs=-66.9 peak=31 peak_dbfs=-60.5 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=135979 samples=2127872 callbacks=8312 window_samples=15872 dc=-1.7 rms=13.0 rms_dbfs=-68.0 peak=30 peak_dbfs=-60.8 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=136979 samples=2144000 callbacks=8375 window_samples=16128 dc=13.5 rms=15.6 rms_dbfs=-66.5 peak=33 peak_dbfs=-59.9 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=137979 samples=2159872 callbacks=8437 window_samples=15872 dc=-8.4 rms=9.9 rms_dbfs=-70.4 peak=20 peak_dbfs=-64.3 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=138979 samples=2176000 callbacks=8500 window_samples=16128 dc=-4.6 rms=6.8 rms_dbfs=-73.7 peak=17 peak_dbfs=-65.7 clips=0 drops=0 overflow=0 no_sample=0
+G0_REPORT elapsed_ms=139979 samples=2191872 callbacks=8562 window_samples=15872 dc=2.3 rms=7.4 rms_dbfs=-72.9 peak=21 peak_dbfs=-63.9 clips=0 drops=0 overflow=0 no_sample=0
+
+serial-read closed

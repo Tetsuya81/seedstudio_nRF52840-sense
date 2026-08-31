@@ -1,0 +1,53 @@
+
+[2026-08-31T16:19:35.629352+00:00] G0 upload consumed
+{
+  "detected_ports": [
+    {
+      "port": {
+        "address": "/dev/cu.debug-console",
+        "label": "/dev/cu.debug-console",
+        "protocol": "serial",
+        "protocol_label": "Serial Port",
+        "properties": {}
+      }
+    },
+    {
+      "port": {
+        "address": "/dev/cu.Bluetooth-Incoming-Port",
+        "label": "/dev/cu.Bluetooth-Incoming-Port",
+        "protocol": "serial",
+        "protocol_label": "Serial Port",
+        "properties": {}
+      }
+    },
+    {
+      "matching_boards": [
+        {
+          "name": "Seeed XIAO nRF52840 Sense",
+          "fqbn": "Seeeduino:nrf52:xiaonRF52840Sense"
+        }
+      ],
+      "port": {
+        "address": "/dev/cu.usbmodem1101",
+        "label": "/dev/cu.usbmodem1101",
+        "protocol": "serial",
+        "protocol_label": "Serial Port (USB)",
+        "properties": {
+          "pid": "0x0045",
+          "serialNumber": "D4210182DC570AC2",
+          "vid": "0x2886"
+        },
+        "hardware_id": "D4210182DC570AC2"
+      }
+    }
+  ]
+}
+command: arduino-cli upload -b Seeeduino:nrf52:xiaonRF52840Sense -p /dev/cu.usbmodem1101 --upload-property upload.use_1200bps_touch=false --upload-property upload.wait_for_upload_port=false --input-file /Users/tetsuya81/dev/private_github.com/seedstudio_nRF52840-sense/build/g0_microphone_smoke/g0_microphone_smoke.ino.zip
+Upgrading target on /dev/cu.usbmodem1101 with DFU package /Users/tetsuya81/dev/private_github.com/seedstudio_nRF52840-sense/build/g0_microphone_smoke/g0_microphone_smoke.ino.zip. Flow control is disabled, Single bank, Touch disabled
+########################################
+########################################
+###########
+Activating new firmware
+Device programmed.
+New upload port: /dev/cu.usbmodem1101 (serial)
+exit: 0

@@ -79,6 +79,7 @@ Mac の突然停止を受けて実機アクセスを停止（`docs/collab/HARDWA
 | 段 | 内容 | 破壊性 |
 |---|---|---|
 | G0 | HOLD 解除。**事故原因は未確定**。常用Mac保護・給電条件・事前退避・1操作ごとの停止確認を再開条件とする。手順は ChatGPT が別途提示しユーザーの明示承認を得る | — |
+| **G0** | ✅ **合格（2026-08-31）**。専用imageのupload 1回とread-only serial 1回。sample rate 15,997.8/s、clips/drops/overflow/no_sample すべて0、静音時RMS中央値 -68.2 dBFS | 録音フラッシュ非破壊 |
 | **G1A** | **Phase 2 マイク実測**。専用イメージは QSPI 初期化・録音フラッシュ read/write・MSC 登録を**行わない**。storage の合格条件とは混ぜない | **録音フラッシュに触れない** |
 | G1 | storage 実機スモーク。ファーム書込みと読み出し確認。`storage-v2-firmware-obligations.md` のF1/F2/F5/F7を確認 | **録音フラッシュのみ非破壊** |
 | G2 | 新ジオメトリ（au=4096＋索引予約）での初期化と基本書込み。同文書のF1〜F7を確認 | あり |
