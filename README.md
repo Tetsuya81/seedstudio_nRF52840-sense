@@ -1,10 +1,15 @@
 # pebble_ring — XIAO nRF52840 Sense 指輪型録音デバイス
 
-> **実機試験は停止中（2026-08-28）**：Macの突然停止を調査しています。
-> upload・シリアル接続・MSC再接続・電源断試験は行わないでください。
-> 現在は [ホスト模擬試験](tools/storage_safety/README.md) とビルドのみ実行できます。
-> [事故対応・再開条件](docs/safety/20260828-incident.md) を先に確認してください。
-> ソースの安全対策は未書込みで、基板に入っている旧ファームの挙動は変わっていません。
+> **`HARDWARE_HOLD` 継続中（2026-08-28〜）**：Macの突然停止を調査中。原因は未特定。
+> upload・シリアル接続・MSC再接続・電源断試験は、**承認済み scope token の範囲外では行わないでください**。
+>
+> - **2026-08-31: G0 合格。** マイク経路のみの専用イメージで、upload 1回 / 受信専用シリアル 1回を実施。
+>   sample rate 15,997.8/s、clips/drops/overflow/no_sample すべて0、静音時RMS中央値 −68.2 dBFS。
+>   詳細は [chat.md MSG-068](docs/collab/chat.md)、ログは `docs/logs/g0-serial.log`
+> - **基板には現在 G0 マイク専用イメージが入っている**（QSPI・MSC を初期化しない）。旧ファームではない
+> - **storage v2 は実機で未検証。** G1A本測定・storage G1以降は別承認が要る
+> - 現在ホスト側で自由に実行できるのは [ホスト模擬試験](tools/storage_safety/README.md) とビルドのみ
+> - [事故対応・再開条件](docs/safety/20260828-incident.md) と [G0手順](docs/g0-procedure.md) を参照
 
 Seeed Studio XIAO nRF52840 **Sense** を使った、Pebble Index 1 のような
 指輪型録音デバイスの開発リポジトリ。
